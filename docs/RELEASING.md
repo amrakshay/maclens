@@ -23,7 +23,7 @@ Releases are automated. You merge pull requests, and CI handles versions, the ch
 
 Users can check that a download was built by this repo's CI with `gh attestation verify MacLens-X.Y.Z.zip --repo amrakshay/maclens`.
 
-The first release is pinned to **1.0.0** by `"release-as": "1.0.0"` in `release-please-config.json`. **Remove that line after 1.0.0 ships**, otherwise every release PR proposes 1.0.0.
+The first release (1.0.0) was pinned with `"release-as"` in `release-please-config.json`; that pin has since been removed, so versions now follow the commits.
 
 ## One-time setup
 
