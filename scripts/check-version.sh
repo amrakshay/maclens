@@ -12,6 +12,7 @@ APPV=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$PLIST")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$PLIST")
 [ "$APPV" = "$WANT" ] || fail "app CFBundleShortVersionString $APPV != $WANT"
 echo "$BUILD" | grep -Eq '^[1-9][0-9]*$' || fail "CFBundleVersion '$BUILD' is not a positive integer"
+/usr/libexec/PlistBuddy -c "Print NSHumanReadableCopyright" "$PLIST" >/dev/null 2>&1 || fail "Info.plist has no NSHumanReadableCopyright (About panel)"
 [ -f "dist/MacLens-$WANT.zip" ] || fail "dist/MacLens-$WANT.zip missing"
 grep -q "version \"$WANT\"" dist/maclens.rb || fail "cask version != $WANT"
 echo "Version check OK: $WANT (build $BUILD)${1:+, tag $1}"

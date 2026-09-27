@@ -228,6 +228,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            AboutSettingsSection()
             UpdateSettingsSection()
             Section("Refresh") {
                 Picker("While the window is visible", selection: $settings.refreshInterval) {

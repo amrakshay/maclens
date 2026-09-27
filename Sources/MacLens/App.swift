@@ -69,6 +69,15 @@ struct MacLensApp: App {
             UpdateWindow().environmentObject(model.updates)
         }
         .windowResizability(.contentSize)
+        .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About MacLens") { AboutPanel.show() }
+                Button("Check for Updates…") {
+                    model.updates.check(userInitiated: true)
+                    NotificationCenter.default.post(name: AppDelegate.showUpdate, object: nil)
+                }
+            }
+        }
     }
 }
 
@@ -148,7 +157,11 @@ struct MenuBarView: View {
                     openWindow(id: "update")
                     NSApp.activate(ignoringOtherApps: true)
                 } label: {
-                    Label("MacLens \(r.version.description) is available — update…", systemImage: "arrow.down.circle.fill")
+                    switch updates.phase {
+                    case .installing(let step): Label("Updating to \(r.version.description): \(step)", systemImage: "arrow.triangle.2.circlepath")
+                    case .failed: Label("Update to \(r.version.description) failed — details…", systemImage: "exclamationmark.triangle.fill")
+                    default: Label("MacLens \(r.version.description) is available — update…", systemImage: "arrow.down.circle.fill")
+                    }
                 }
                 .buttonStyle(.borderless)
                 Divider()
@@ -200,6 +213,7 @@ struct MenuBarView: View {
                 }
                 .keyboardShortcut("o")
                 Spacer()
+                Button("About") { AboutPanel.show() }
                 Button("Quit") { NSApp.terminate(nil) }.keyboardShortcut("q")
             }
         }
