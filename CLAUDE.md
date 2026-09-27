@@ -97,7 +97,8 @@ Other flags:
 
    If there isn't one, create it first with `gh issue create`. Give it a Conventional-Commit-style title, the problem, the proposal and acceptance criteria. Then start.
 2. **Never commit or push to `main`.** Branch from an up-to-date `main` as `<type>/<issue>-<slug>`, e.g. `feat/5-update-checker`. Open a PR with `gh pr create` and `Closes #N` in the body. The PR title is a Conventional Commit, since it becomes the squash commit and the changelog entry.
-3. **CI must pass before merge:** build, self-test, version check, cask lint and CodeQL. The maintainer merges, with squash.
+3. **CI must pass before merge:** `build-and-test` covers build, self-test, version check and cask lint. The maintainer merges, with squash.
+   - CodeQL doesn't run on PRs, because a scan takes about 15 minutes. It runs on `main`, weekly, and on demand via Actions → CodeQL → Run workflow. Run it on the branch before merging anything security-sensitive (deletion guard, kill policy, updater).
 4. **Don't merge release-please's release PRs yourself.** They're how releases ship; the maintainer merges them.
 
 ## Releases and commits
