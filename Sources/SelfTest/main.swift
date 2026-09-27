@@ -304,6 +304,21 @@ do {
     try! "hacked".write(to: tampered.appendingPathComponent("Contents/MacOS/MacLens"), atomically: true, encoding: .utf8)
     check((try? Updater.verifyBundle(tampered, newerThan: v("1.0.0"))) == nil, "bundle modified after signing is refused")
 
+    // Quarantine (#11): cleared only after verification passes, recursively; tampered bundles keep it.
+    func quarantine(_ url: URL) {
+        let v = "0081;6ab96c1e;Safari;"
+        _ = v.withCString { setxattr(url.path, "com.apple.quarantine", $0, strlen($0), 0, XATTR_NOFOLLOW) }
+    }
+    let q = makeBundle("upd/q/MacLens.app", version: "9.0.0")
+    quarantine(q); quarantine(q.appendingPathComponent("Contents/MacOS/MacLens"))
+    check(Updater.isQuarantined(q), "test bundle carries the quarantine flag")
+    check((try? Updater.verifyAndClearQuarantine(q, newerThan: v("1.0.0"))) == v("9.0.0") && !Updater.isQuarantined(q)
+          && !Updater.isQuarantined(q.appendingPathComponent("Contents/MacOS/MacLens")), "verified bundle: quarantine cleared recursively")
+    quarantine(tampered)
+    check((try? Updater.verifyAndClearQuarantine(tampered, newerThan: v("1.0.0"))) == nil && Updater.isQuarantined(tampered),
+          "tampered bundle: verification fails and the quarantine flag is left in place")
+    quarantine(newer) // simulate a release zip whose app arrives quarantined
+
     // End-to-end direct install from local files: zip + checksum → verify → swap the "installed" app.
     let installed = makeBundle("upd/Applications/MacLens.app", version: "1.0.0")
     let zipURL = URL(fileURLWithPath: PathUtil.join(T, "upd/MacLens-9.0.0.zip"))
@@ -319,6 +334,27 @@ do {
     done.wait()
     let nowVersion = NSDictionary(contentsOf: installed.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String
     check(installErr == nil && nowVersion == "9.0.0", "direct install swapped the app to 9.0.0 (\(installErr?.localizedDescription ?? "ok"))")
+    check(!Updater.isQuarantined(installed), "direct install: the new app has no quarantine flag (opens without the Gatekeeper prompt)")
+
+    // Homebrew path with a fake `brew` that "upgrades" by copying a quarantined newer bundle into place.
+    let brewApp = makeBundle("upd/brew/Applications/MacLens.app", version: "1.0.0")
+    let src = makeBundle("upd/brew/src/MacLens.app", version: "9.1.0")
+    quarantine(src)
+    let fakeBrewUp = PathUtil.join(T, "upd/brew/brew")
+    try! "#!/bin/sh\n/bin/rm -rf '\(brewApp.path)' && /usr/bin/ditto '\(src.path)' '\(brewApp.path)'\n".write(toFile: fakeBrewUp, atomically: true, encoding: .utf8)
+    chmod(fakeBrewUp, 0o755)
+    nonisolated(unsafe) var brewErr: Error?
+    Task { do { try await Updater.installHomebrew(brew: fakeBrewUp, appPath: brewApp.path, currentVersion: v("1.0.0")) { _ in } } catch { brewErr = error }; done.signal() }
+    done.wait()
+    let brewV = NSDictionary(contentsOf: brewApp.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String
+    check(brewErr == nil && brewV == "9.1.0" && !Updater.isQuarantined(brewApp),
+          "Homebrew path: upgraded app verified and quarantine cleared (\(brewErr?.localizedDescription ?? "ok"))")
+    let fakeBrewNoop = PathUtil.join(T, "upd/brew/brew-noop")
+    try! "#!/bin/sh\nexit 0\n".write(toFile: fakeBrewNoop, atomically: true, encoding: .utf8); chmod(fakeBrewNoop, 0o755)
+    nonisolated(unsafe) var noopErr: Error?
+    Task { do { try await Updater.installHomebrew(brew: fakeBrewNoop, appPath: brewApp.path, currentVersion: v("9.1.0")) { _ in } } catch { noopErr = error }; done.signal() }
+    done.wait()
+    check(noopErr != nil, "Homebrew path: brew that installs nothing newer is reported as a failure")
 
     let badSha = URL(fileURLWithPath: PathUtil.join(T, "upd/bad.sha256"))
     try! "\(String(repeating: "0", count: 64))  MacLens-9.0.0.zip\n".write(to: badSha, atomically: true, encoding: .utf8)

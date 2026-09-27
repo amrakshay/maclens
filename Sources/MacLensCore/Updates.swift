@@ -159,11 +159,45 @@ public enum Updater {
         return v
     }
 
+    // MARK: Quarantine
+
+    static let quarantineAttr = "com.apple.quarantine"
+
+    /// True if the item itself carries macOS's download-quarantine flag (what triggers the Gatekeeper prompt).
+    public static func isQuarantined(_ url: URL) -> Bool {
+        getxattr(url.path, quarantineAttr, nil, 0, 0, XATTR_NOFOLLOW) >= 0
+    }
+
+    /// Removes the quarantine flag from a bundle and everything inside it (never following symlinks).
+    /// Only call this on a bundle that has just passed `verifyBundle`. Returns how many items were cleared.
+    @discardableResult
+    public static func clearQuarantine(_ app: URL) -> Int {
+        var cleared = 0
+        func clear(_ path: String) { if removexattr(path, quarantineAttr, XATTR_NOFOLLOW) == 0 { cleared += 1 } }
+        clear(app.path)
+        if let e = FileManager.default.enumerator(atPath: app.path) {
+            for case let rel as String in e { clear(PathUtil.join(app.path, rel)) }
+        }
+        return cleared
+    }
+
+    /// Verifies the bundle and, only if verification passes, clears its quarantine flag. Throws (and leaves
+    /// the flag alone) if the bundle fails any check.
+    @discardableResult
+    public static func verifyAndClearQuarantine(_ app: URL, newerThan current: SemVer) throws -> SemVer {
+        let v = try verifyBundle(app, newerThan: current)
+        clearQuarantine(app)
+        return v
+    }
+
     // MARK: Installing
 
     /// Direct install: download zip + checksum, verify, unpack, verify the app, then swap it in for `current`.
     /// The old bundle goes to the Trash (recoverable) and is restored if the swap fails.
+    /// `clearQuarantine`: remove macOS's quarantine flag from the verified new bundle so it relaunches
+    /// without the Gatekeeper "could not verify" prompt (#11).
     public static func installDirect(_ release: ReleaseInfo, replacing current: URL, currentVersion: SemVer,
+                                     clearQuarantine clearFlag: Bool = true,
                                      progress: @escaping @Sendable (String) -> Void) async throws {
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("maclens-update-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
@@ -187,6 +221,7 @@ public enum Updater {
 
         progress("Verifying the new app…")
         _ = try verifyBundle(newApp, newerThan: currentVersion)
+        if clearFlag { clearQuarantine(newApp) } // verified above; the swap moves this exact bundle into place
 
         progress("Installing…")
         var trashed: NSURL?
@@ -199,13 +234,23 @@ public enum Updater {
         }
     }
 
-    /// Homebrew install: `brew upgrade --cask maclens` (brew refreshes its taps first).
-    public static func installHomebrew(brew: String, progress: @escaping @Sendable (String) -> Void) async throws {
+    /// Homebrew install: `brew upgrade --cask maclens` (brew refreshes its taps first). Afterwards the installed
+    /// app is verified like a direct download; only then is Homebrew's quarantine flag cleared (#11).
+    public static func installHomebrew(brew: String, appPath: String, currentVersion: SemVer, clearQuarantine clearFlag: Bool = true,
+                                       progress: @escaping @Sendable (String) -> Void) async throws {
         progress("Running brew upgrade --cask maclens…")
         let out = await Task.detached { run(brew, ["upgrade", "--cask", "maclens"], env: ["HOMEBREW_NO_ENV_HINTS": "1"]) }.value
         guard out.status == 0 else {
             throw UpdateError.install("brew upgrade failed:\n" + out.output.suffix(800))
         }
+        progress("Verifying the upgraded app…")
+        let app = URL(fileURLWithPath: appPath)
+        do {
+            _ = try verifyBundle(app, newerThan: currentVersion)
+        } catch UpdateError.notNewer {
+            throw UpdateError.install("brew finished but the installed app isn't newer yet. Homebrew may not have seen the new cask; try `brew update` and update again.")
+        }
+        if clearFlag { clearQuarantine(app) }
     }
 
     /// Relaunches the app at `path` after this process exits.
