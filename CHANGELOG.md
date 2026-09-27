@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/amrakshay/maclens/compare/v1.1.0...v1.2.0) (2026-09-27)
+
+
+### Features
+
+* open verified updates without the Gatekeeper prompt ([#13](https://github.com/amrakshay/maclens/issues/13)) ([45b08f1](https://github.com/amrakshay/maclens/commit/45b08f1637b3517ae10cbc93cc0f69fe8c5ef4a8)), closes [#11](https://github.com/amrakshay/maclens/issues/11)
+
 ## [1.1.0](https://github.com/amrakshay/maclens/compare/v1.0.0...v1.1.0) (2026-09-27)
 
 
