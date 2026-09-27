@@ -15,7 +15,7 @@ cask "maclens" do
   homepage "https://github.com/amrakshay/maclens"
 
   depends_on arch: :arm64
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "MacLens.app"
 

@@ -30,6 +30,16 @@ jobs:
         run: ./scripts/build-app.sh
       - name: Package
         run: ./scripts/package-release.sh
+      - name: Lint Homebrew cask
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_FROM_API: "1"
+        run: |
+          brew tap-new --no-git maclens/ci                      # throwaway local tap: brew only lints casks inside a tap
+          mkdir -p "$(brew --repository maclens/ci)/Casks"
+          cp dist/maclens.rb "$(brew --repository maclens/ci)/Casks/maclens.rb"
+          brew style --cask maclens/ci/maclens
+          brew audit --cask maclens/ci/maclens
       - uses: actions/upload-artifact@v7
         with:
           name: MacLens-${{ github.sha }}
