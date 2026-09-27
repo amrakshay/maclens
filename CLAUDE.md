@@ -87,6 +87,19 @@ Other flags:
 - **SwiftUI:** a `Table` nested inside a `ScrollView` collapses. `GroupBox` content doesn't appear in layer captures, which is why `Panel` is used.
 - **Signing:** TCC (Full Disk Access) grants are tied to the code signature, so ad-hoc builds lose FDA on every rebuild.
 
+## Workflow (mandatory)
+
+1. **Issue first.** Before starting any work, check GitHub for an issue covering it:
+
+   ```bash
+   gh issue list -R amrakshay/maclens --state all --search "<keywords>"
+   ```
+
+   If there isn't one, create it first with `gh issue create`. Give it a Conventional-Commit-style title, the problem, the proposal and acceptance criteria. Then start.
+2. **Never commit or push to `main`.** Branch from an up-to-date `main` as `<type>/<issue>-<slug>`, e.g. `feat/5-update-checker`. Open a PR with `gh pr create` and `Closes #N` in the body. The PR title is a Conventional Commit, since it becomes the squash commit and the changelog entry.
+3. **CI must pass before merge:** build, self-test, version check, cask lint and CodeQL. The maintainer merges, with squash.
+4. **Don't merge release-please's release PRs yourself.** They're how releases ship; the maintainer merges them.
+
 ## Releases and commits
 
 - **Commit messages and PR titles are [Conventional Commits](https://www.conventionalcommits.org/)** (`feat:`, `fix:`, `docs:`, `chore:`, `ci:`, …). release-please derives the version and CHANGELOG from them.
@@ -94,6 +107,8 @@ Other flags:
 - Distribution is **GitHub Releases + the `amrakshay/homebrew-tap` cask only**. Releases are ad-hoc signed; there is no paid Apple signing or notarization by design, so don't add it.
 - The cask comes from `scripts/make-cask.sh`, and `scripts/publish-cask.sh` pushes it to the tap.
 - Full flow, secrets and one-time setup: [docs/RELEASING.md](docs/RELEASING.md).
+- The version is never edited by hand. `scripts/check-version.sh` fails CI or a release if the app, zip, cask and tag disagree with `version.txt`.
+- The app checks GitHub Releases for updates (`Updater` in core, `UpdateStore` in the app). Release assets must keep the names `MacLens-X.Y.Z.zip` and `.zip.sha256`, because the updater and the cask depend on them.
 - CI runs on `macos-26`. The self-test skips hardware checks when `CI` is set, so any new hardware-dependent check must use `hardwareCheck`.
 
 ## Conventions
