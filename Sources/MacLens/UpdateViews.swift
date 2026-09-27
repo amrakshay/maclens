@@ -86,8 +86,8 @@ import MacLensCore
 
     func skip(_ r: ReleaseInfo) { skippedTag = r.tag }
 
-    /// Snapshot/preview only: pretend `r` is the latest release.
-    func preview(_ r: ReleaseInfo) { latest = r }
+    /// Snapshot/preview only: pretend `r` is the latest release, optionally in a given phase.
+    func preview(_ r: ReleaseInfo, phase: Phase = .idle) { latest = r; self.phase = phase }
 
     func installAndRelaunch(_ r: ReleaseInfo) {
         let appPath = Bundle.main.bundlePath
@@ -183,7 +183,20 @@ struct UpdateWindow: View {
         case .installing(let msg):
             HStack { ProgressView().controlSize(.small); Text(msg) }
         case .failed(let msg):
-            Label(msg, systemImage: "exclamationmark.triangle.fill").foregroundStyle(VizColor.critical).font(.callout)
+            // Full text, wrapping and selectable: brew's output and the recovery hint must stay readable (#21).
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Update failed", systemImage: "exclamationmark.triangle.fill").foregroundStyle(VizColor.critical).font(.callout.bold())
+                ScrollView {
+                    Text(msg).font(.caption.monospaced()).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxHeight: 90)
+                Button("Copy error") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(msg, forType: .string)
+                }
+                .controlSize(.small)
+            }
         default:
             switch updates.installKind {
             case .homebrew:
@@ -233,7 +246,7 @@ struct ReleaseNotesView: View {
     }
 }
 
-/// Dashboard banner shown while an update is available.
+/// Dashboard banner shown while an update is available. Shows the running step and failures in place (#21).
 struct UpdateBanner: View {
     @EnvironmentObject var updates: UpdateStore
     @Environment(\.openWindow) private var openWindow
@@ -241,18 +254,48 @@ struct UpdateBanner: View {
     var body: some View {
         if let r = updates.available {
             HStack(spacing: 12) {
-                Image(systemName: "arrow.down.circle.fill").font(.title2).foregroundStyle(VizColor.series1)
+                icon
                 VStack(alignment: .leading, spacing: 2) {
                     Text("MacLens \(r.version.description) is available").font(.headline)
-                    Text("You have \(updates.currentVersionString).").font(.caption).foregroundStyle(.secondary)
+                    status
                 }
                 Spacer()
-                Button("What's new…") { openWindow(id: "update") }
-                Button("Update and restart") { updates.installAndRelaunch(r) }.buttonStyle(.borderedProminent)
-                    .disabled({ if case .unsupported = updates.installKind { return true }; return false }())
+                switch updates.phase {
+                case .installing:
+                    ProgressView().controlSize(.small)
+                case .failed:
+                    Button("Details…") { openWindow(id: "update") }
+                    Button("Try again") { updates.installAndRelaunch(r) }.buttonStyle(.borderedProminent)
+                default:
+                    Button("What's new…") { openWindow(id: "update") }
+                    Button("Update and restart") { updates.installAndRelaunch(r) }.buttonStyle(.borderedProminent)
+                        .disabled({ if case .unsupported = updates.installKind { return true }; return false }())
+                }
             }
             .padding(12)
-            .background(RoundedRectangle(cornerRadius: 8).fill(VizColor.series1.opacity(0.10)))
+            .background(RoundedRectangle(cornerRadius: 8).fill(failed ? VizColor.critical.opacity(0.10) : VizColor.series1.opacity(0.10)))
+        }
+    }
+
+    private var failed: Bool { if case .failed = updates.phase { return true }; return false }
+
+    @ViewBuilder private var icon: some View {
+        if failed {
+            Image(systemName: "exclamationmark.triangle.fill").font(.title2).foregroundStyle(VizColor.critical)
+        } else {
+            Image(systemName: "arrow.down.circle.fill").font(.title2).foregroundStyle(VizColor.series1)
+        }
+    }
+
+    @ViewBuilder private var status: some View {
+        switch updates.phase {
+        case .installing(let step):
+            Text(step).font(.caption).foregroundStyle(.secondary)
+        case .failed(let msg):
+            Text("Update failed: " + (msg.components(separatedBy: .newlines).first ?? msg))
+                .font(.caption).foregroundStyle(VizColor.critical).lineLimit(2)
+        default:
+            Text("You have \(updates.currentVersionString).").font(.caption).foregroundStyle(.secondary)
         }
     }
 }

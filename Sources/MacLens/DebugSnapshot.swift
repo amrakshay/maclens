@@ -27,8 +27,10 @@ import MacLensCore
                 if tab == .dashboard { renderOffscreen(DashboardContent(), model: model, to: dir.appendingPathComponent("dashboard-content.png")) }
             }
             // Update window with a sample release (no real newer release exists to show it otherwise).
+            let cur = model.updates.currentVersion
+            let next = "\(cur.major).\(cur.minor + 1).0" // always newer than the running build
             model.updates.preview(ReleaseInfo(
-                version: SemVer("1.1.0")!, tag: "v1.1.0",
+                version: SemVer(next)!, tag: "v" + next,
                 notes: "## [1.1.0](https://github.com/amrakshay/maclens/compare/v1.0.0...v1.1.0) (2026-09-28)\n\n### Features\n\n* in-app update checker with changelog and **Update and restart** ([#5](https://github.com/amrakshay/maclens/issues/5))\n\n### Bug Fixes\n\n* use Homebrew 6 `depends_on macos` syntax in the cask",
                 publishedAt: Date().addingTimeInterval(-3600), pageURL: URL(string: "https://github.com/amrakshay/maclens/releases")!,
                 zipURL: URL(string: "https://github.com/amrakshay/maclens/releases/download/v1.1.0/MacLens-1.1.0.zip")!,
@@ -41,6 +43,24 @@ import MacLensCore
             model.tab = .dashboard
             try? await Task.sleep(for: .seconds(2))
             renderOffscreen(UpdateBanner().frame(width: 900), model: model, to: dir.appendingPathComponent("update-banner.png"))
+            if let r = model.updates.latest {
+                model.updates.preview(r, phase: .installing("Refreshing Homebrew (brew update)…"))
+                renderOffscreen(UpdateBanner().frame(width: 900), model: model, to: dir.appendingPathComponent("update-banner-installing.png"))
+                let err = "brew finished but the installed app isn't newer. Run `brew update && brew upgrade --cask maclens` in Terminal, then reopen MacLens."
+                model.updates.preview(r, phase: .failed(err))
+                renderOffscreen(UpdateBanner().frame(width: 900), model: model, to: dir.appendingPathComponent("update-banner-failed.png"))
+                renderOffscreen(UpdateWindow(), model: model, to: dir.appendingPathComponent("update-window-failed.png"))
+            }
+            // About panel (#20): open the standard panel and capture its window.
+            AboutPanel.show()
+            try? await Task.sleep(for: .seconds(1))
+            if let w = NSApp.windows.first(where: { $0.isVisible && $0.identifier?.rawValue != "main" && !($0.identifier?.rawValue ?? "").hasPrefix("main") && $0.className.contains("Panel") }),
+               let v = w.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+                v.cacheDisplay(in: v.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("about.png"))
+            }
+            let credits = AboutPanel.credits(installKind: .homebrew(brew: "/opt/homebrew/bin/brew"))
+            renderOffscreen(Text(AttributedString(credits)).frame(width: 420).padding(), model: model, to: dir.appendingPathComponent("about-credits.png"))
             NSApp.terminate(nil)
         }
     }

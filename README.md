@@ -157,6 +157,7 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
 **Updates**
 - MacLens checks GitHub Releases once a day, with one small request. You can turn this off or run **Check now** in Settings.
 - When a newer version is out, you get one notification per version, a banner on the Dashboard and an entry in the menu bar menu.
+- While an update runs, the banner and menu entry show each step. If it fails, they show the error, with **Details…** (the full, copyable message) and **Try again**.
 - The update window shows the changelog, with **Update and restart**, **Skip this version** and **Later**.
 - **Update and restart** works like this:
   - Homebrew installs run `brew upgrade --cask maclens`.
@@ -167,8 +168,12 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
   - So does updating from 1.1.0, which predates this feature.
 - Full Disk Access has to be re-enabled after an update, because each release is ad-hoc signed.
 
+**About MacLens** (app menu, menu bar menu, Settings)
+- What MacLens is, the author, the MIT license, links (GitHub, What's new, Report an issue, License), how it was installed, and a privacy note (no telemetry; one daily update check).
+- The app menu also has **Check for Updates…**.
+
 **Settings**
-- Version and build, update options, refresh intervals, notification thresholds, and Full Disk Access status.
+- About, version and build, update options, refresh intervals, notification thresholds, and Full Disk Access status.
 - **Battery alerts:**
   - On by default: low at **20%** while on battery, high at **80%** while charging. The levels change in 5% steps, and a toggle turns the alerts off.
   - Each alert fires once when the level is reached. It re-arms only after the battery moves 2% back past the level.
