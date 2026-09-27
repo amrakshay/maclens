@@ -10,7 +10,12 @@ Releases are automated. You merge pull requests, and CI handles versions, the ch
    - `feat!:` or a `BREAKING CHANGE:` footer bumps the major version.
    - `docs:`, `chore:`, `ci:`, `refactor:` and `test:` don't trigger a release on their own.
 2. **release-please** (`.github/workflows/release.yml`) opens or updates a PR titled `chore(main): release X.Y.Z`. That PR bumps `version.txt` and prepends the new entries to `CHANGELOG.md`.
-3. **Merge that release PR** when you want to ship. The workflow then:
+3. **Merge that release PR** when you want to ship.
+   - The PR is opened by the Actions bot, so GitHub holds its CI run. Open the PR's **Checks** tab and click **Approve and run workflows** so the required `build-and-test` check can pass.
+   - If you'd rather not approve every time, give release-please a fine-grained personal access token (Contents + Pull requests: read/write on this repo) as the `token:` input. PRs it opens then trigger CI normally.
+   - If the release PR ever shows conflicts (e.g. after editing CHANGELOG.md or version.txt on `main`), delete its branch `release-please--branches--main`. The next push to `main` regenerates the PR.
+
+   After the merge, the workflow:
    1. tags `vX.Y.Z` and creates the GitHub Release with the changelog as notes;
    2. on `macos-26`, runs the self-test, builds `MacLens.app` (version from `version.txt`, build number = CI run number), and signs and notarizes it if the Apple secrets exist;
    3. packages `MacLens-X.Y.Z.zip` and its `.sha256`, attests build provenance, and uploads them to the release;
