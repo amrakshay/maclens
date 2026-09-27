@@ -13,6 +13,10 @@ import MacLensCore
     @Published var autoCheck: Bool = UserDefaults.standard.object(forKey: "updateAutoCheck") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoCheck, forKey: "updateAutoCheck"); schedule() }
     }
+    /// Clear macOS's quarantine flag from a verified update so it opens without the Gatekeeper prompt (#11).
+    @Published var skipGatekeeperPrompt: Bool = UserDefaults.standard.object(forKey: "updateClearQuarantine") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(skipGatekeeperPrompt, forKey: "updateClearQuarantine") }
+    }
 
     let currentVersionString = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     let buildNumber = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "–"
@@ -89,13 +93,17 @@ import MacLensCore
         let appPath = Bundle.main.bundlePath
         let kind = installKind
         let current = currentVersion
+        let clearFlag = skipGatekeeperPrompt
         let report: @Sendable (String) -> Void = { msg in Task { @MainActor in self.phase = .installing(msg) } }
         phase = .installing("Preparing…")
         Task {
             do {
                 switch kind {
-                case .homebrew(let brew): try await Updater.installHomebrew(brew: brew, progress: report)
-                case .direct: try await Updater.installDirect(r, replacing: URL(fileURLWithPath: appPath), currentVersion: current, progress: report)
+                case .homebrew(let brew):
+                    try await Updater.installHomebrew(brew: brew, appPath: appPath, currentVersion: current, clearQuarantine: clearFlag, progress: report)
+                case .direct:
+                    try await Updater.installDirect(r, replacing: URL(fileURLWithPath: appPath), currentVersion: current,
+                                                    clearQuarantine: clearFlag, progress: report)
                 case .unsupported(let why): throw UpdateError.install("Can't update in place: \(why). Download it from the release page.")
                 }
                 phase = .installing("Restarting…")
@@ -179,9 +187,13 @@ struct UpdateWindow: View {
         default:
             switch updates.installKind {
             case .homebrew:
-                Text("Installed with Homebrew — MacLens will run `brew upgrade --cask maclens`, then restart.").font(.caption).foregroundStyle(.secondary)
+                Text("Installed with Homebrew — MacLens will run `brew upgrade --cask maclens`, verify the upgraded app (code signature, bundle ID, version)" +
+                     (updates.skipGatekeeperPrompt ? " and clear its quarantine flag so macOS doesn't block it" : "") + ", then restart.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             case .direct:
-                Text("MacLens downloads the release, checks its SHA-256 and code signature, replaces the app (the old copy goes to the Trash), then restarts. If you use Full Disk Access, re-enable it for the new version in System Settings.")
+                Text("MacLens downloads the release, checks its SHA-256 and code signature, replaces the app (the old copy goes to the Trash)" +
+                     (updates.skipGatekeeperPrompt ? ", clears its quarantine flag so macOS doesn't block it," : "") +
+                     " then restarts. If you use Full Disk Access, re-enable it for the new version in System Settings.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             case .unsupported(let why):
                 Text("Automatic install isn't available: \(why).").font(.caption).foregroundStyle(.secondary)
@@ -254,6 +266,8 @@ struct UpdateSettingsSection: View {
         Section("Updates") {
             LabeledContent("Version", value: "\(updates.currentVersionString) (build \(updates.buildNumber))")
             Toggle("Check for updates automatically (daily)", isOn: $updates.autoCheck)
+            Toggle("Open verified updates without the Gatekeeper prompt", isOn: $updates.skipGatekeeperPrompt)
+                .help("After an update passes verification (this repo's release, SHA-256, code signature, bundle ID, newer version), MacLens removes macOS's quarantine flag from it. Unverified files are never touched.")
             HStack {
                 Button("Check now") { updates.check(userInitiated: true); openWindow(id: "update") }
                 if case .checking = updates.phase { ProgressView().controlSize(.small) }

@@ -162,6 +162,9 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
   - Homebrew installs run `brew upgrade --cask maclens`.
   - Downloaded copies fetch the release zip and verify its SHA-256, code signature, bundle ID and version. The old copy goes to the Trash, the new one goes in its place, and MacLens relaunches.
   - Development builds just link to the release page.
+- **No Gatekeeper prompt after updates.** Once an update passes verification (this repo's release, SHA-256, code signature, bundle ID, newer version), MacLens clears macOS's quarantine flag on it, so the new version opens without the "Apple could not verify…" prompt. This applies to both update paths, and a toggle in Settings → Updates turns it off. Files that fail verification are never touched.
+  - The very first install still shows the prompt once: allow it via System Settings → Privacy & Security → **Open Anyway**.
+  - So does updating from 1.1.0, which predates this feature.
 - Full Disk Access has to be re-enabled after an update, because each release is ad-hoc signed.
 
 **Settings**

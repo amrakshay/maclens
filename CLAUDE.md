@@ -85,6 +85,10 @@ Other flags:
 - **Disk rescans:** FSEvents history drives incremental rescans. Tests must sleep ~1.5 s after writes so events get IDs before the baseline scan.
 - **Hard links:** attributed after traversal, with `ScanTree.linkOwners` persisted in the cache. This avoids double counting on rescans.
 - **SwiftUI:** a `Table` nested inside a `ScrollView` collapses. `GroupBox` content doesn't appear in layer captures, which is why `Panel` is used.
+- **Gatekeeper:**
+  - Homebrew sets `com.apple.quarantine` on installs and upgrades (5.0+ has no `--no-quarantine`).
+  - `URLSession` downloads aren't quarantined.
+  - The updater clears the flag only after `verifyBundle` passes. Keep that ordering.
 - **Signing:** TCC (Full Disk Access) grants are tied to the code signature, so ad-hoc builds lose FDA on every rebuild.
 
 ## Workflow (mandatory)
