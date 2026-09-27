@@ -154,8 +154,18 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
 - Filter by type, by "not used in N days", or by text. Sort by any column. Totals update with the filter and selection.
 - **Move to Trash…** is the default. **Delete Permanently…** is a separate button. Either one shows a confirmation that lists every path and the total size. Global caches carry a re-download warning.
 
+**Updates**
+- MacLens checks GitHub Releases once a day, with one small request. You can turn this off or run **Check now** in Settings.
+- When a newer version is out, you get one notification per version, a banner on the Dashboard and an entry in the menu bar menu.
+- The update window shows the changelog, with **Update and restart**, **Skip this version** and **Later**.
+- **Update and restart** works like this:
+  - Homebrew installs run `brew upgrade --cask maclens`.
+  - Downloaded copies fetch the release zip and verify its SHA-256, code signature, bundle ID and version. The old copy goes to the Trash, the new one goes in its place, and MacLens relaunches.
+  - Development builds just link to the release page.
+- Full Disk Access has to be re-enabled after an update, because each release is ad-hoc signed.
+
 **Settings**
-- Refresh intervals, notification thresholds, and Full Disk Access status.
+- Version and build, update options, refresh intervals, notification thresholds, and Full Disk Access status.
 - **Battery alerts:**
   - On by default: low at **20%** while on battery, high at **80%** while charging. The levels change in 5% steps, and a toggle turns the alerts off.
   - Each alert fires once when the level is reached. It re-arms only after the battery moves 2% back past the level.
@@ -232,6 +242,7 @@ The core library is `Sources/MacLensCore`; the app is `Sources/MacLens`.
 | Fans | SMC read (`FNum`, `F<n>Ac`) | no |
 | Battery watts / time | Battery flow = measured current × voltage. System draw: on battery, `PowerTelemetryData.SystemLoad`; on power, adapter input − charging power − adapter loss. The telemetry's `BatteryPower` field reads "discharging" while charging, so it's ignored. Time from IOPowerSources. | no |
 | Awake blockers | `IOPMCopyAssertionsByProcess` | no |
+| Updates | `api.github.com/repos/amrakshay/maclens/releases/latest` (unauthenticated, once a day). Downloads are accepted only from this repo's release assets and verified with SHA-256 + `codesign --verify`. | no |
 | Battery health | `system_profiler SPPowerDataType -json` every 10 min (~0.05 s CPU) for Apple's maximum-capacity % and condition; cycles and mAh from `AppleSmartBattery`. The raw mAh ratio and the power-source API's `BatteryHealth` key disagree with System Settings, so they aren't used for the verdict. | no |
 | Ports | `netstat -anv`, which carries the PID of every socket; `lsof` would only see your own | no |
 | Machine CPU / memory | `host_statistics` (`HOST_CPU_LOAD_INFO`, `HOST_VM_INFO64`), `vm.swapusage` | no |

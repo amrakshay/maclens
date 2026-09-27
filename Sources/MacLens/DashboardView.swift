@@ -52,6 +52,7 @@ struct DashboardContent: View {
     var body: some View {
         let pts = points
         VStack(alignment: .leading, spacing: 14) {
+            UpdateBanner()
             kpiRow(pts)
             SleepControlBar()
 

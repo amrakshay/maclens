@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import MacLensCore
 
 /// Developer aid: `MacLens --snapshot DIR` renders the main window for each tab into DIR/<tab>.png and quits.
 /// Uses the app's own view caching, so it needs no Screen Recording permission.
@@ -25,10 +26,21 @@ import SwiftUI
                 if tab == .heat { renderOffscreen(HeatContent(), model: model, to: dir.appendingPathComponent("heat-content.png")) }
                 if tab == .dashboard { renderOffscreen(DashboardContent(), model: model, to: dir.appendingPathComponent("dashboard-content.png")) }
             }
-            if let root = NSApp.windows.first(where: { ($0.identifier?.rawValue ?? "").hasPrefix("main") })?.contentView {
-                func walk(_ v: NSView) { if let t = v as? NSTableView { print("table \(type(of: t)) rows=\(t.numberOfRows) cols=\(t.numberOfColumns)") }; v.subviews.forEach(walk) }
-                walk(root)
+            // Update window with a sample release (no real newer release exists to show it otherwise).
+            model.updates.preview(ReleaseInfo(
+                version: SemVer("1.1.0")!, tag: "v1.1.0",
+                notes: "## [1.1.0](https://github.com/amrakshay/maclens/compare/v1.0.0...v1.1.0) (2026-09-28)\n\n### Features\n\n* in-app update checker with changelog and **Update and restart** ([#5](https://github.com/amrakshay/maclens/issues/5))\n\n### Bug Fixes\n\n* use Homebrew 6 `depends_on macos` syntax in the cask",
+                publishedAt: Date().addingTimeInterval(-3600), pageURL: URL(string: "https://github.com/amrakshay/maclens/releases")!,
+                zipURL: URL(string: "https://github.com/amrakshay/maclens/releases/download/v1.1.0/MacLens-1.1.0.zip")!,
+                sha256URL: URL(string: "https://github.com/amrakshay/maclens/releases/download/v1.1.0/MacLens-1.1.0.zip.sha256")!))
+            renderOffscreen(UpdateWindow(), model: model, to: dir.appendingPathComponent("update-window.png"))
+            if let notes = model.updates.latest?.notes {
+                renderOffscreen(ReleaseNotesView(markdown: notes).padding().frame(width: 520, alignment: .leading), model: model,
+                                to: dir.appendingPathComponent("update-notes.png"))
             }
+            model.tab = .dashboard
+            try? await Task.sleep(for: .seconds(2))
+            renderOffscreen(UpdateBanner().frame(width: 900), model: model, to: dir.appendingPathComponent("update-banner.png"))
             NSApp.terminate(nil)
         }
     }
@@ -37,7 +49,7 @@ import SwiftUI
     static func renderOffscreen<V: View>(_ view: V, model: AppModel, to url: URL) {
         let r = ImageRenderer(content: view.frame(width: 1000)
             .environmentObject(model).environmentObject(model.settings).environmentObject(model.monitor)
-            .environmentObject(model.history).environmentObject(model.ports).environmentObject(model.artifacts).environmentObject(model.sleep)
+            .environmentObject(model.history).environmentObject(model.ports).environmentObject(model.artifacts).environmentObject(model.sleep).environmentObject(model.updates)
             .background(Color.white))
         r.scale = 2
         if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
