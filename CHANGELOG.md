@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/amrakshay/maclens/compare/v1.2.0...v1.2.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* refresh Homebrew taps before "Update and restart" upgrades ([#18](https://github.com/amrakshay/maclens/issues/18)) ([6034d0a](https://github.com/amrakshay/maclens/commit/6034d0a30abc0f474521ce2d003dbd960d59a43b)), closes [#17](https://github.com/amrakshay/maclens/issues/17)
+
 ## [1.2.0](https://github.com/amrakshay/maclens/compare/v1.1.0...v1.2.0) (2026-09-27)
 
 
