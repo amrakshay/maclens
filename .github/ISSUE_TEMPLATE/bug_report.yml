@@ -1,0 +1,35 @@
+name: Bug report
+description: Something doesn't work or shows wrong data
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead. Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open Storage\n2. Scan Home\n3. …"
+  - type: input
+    id: version
+    attributes:
+      label: MacLens version
+      description: About MacLens, or the release you downloaded
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: macOS 26.6, MacBook Pro M4 Pro
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Dashboard, Processes, Heat & Battery, Ports, Storage, Developer Artifacts, Menu bar, Settings, Install / Gatekeeper, Other]
