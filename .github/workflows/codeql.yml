@@ -1,10 +1,8 @@
 name: CodeQL
 
-# Not on pull requests: the Swift extractor makes a scan take ~15 min (vs ~2 min for CI), and CodeQL isn't a
-# required check. Findings show up on main shortly after merge; run it manually on a branch when needed. (#9)
+# Weekly and on demand only: a Swift scan takes ~15 min (vs ~2 min for CI) and CodeQL isn't a required check, so
+# it doesn't run on pull requests (#9) or on pushes to main (15). Run it manually on a branch when needed.
 on:
-  push:
-    branches: [main]
   schedule:
     - cron: "23 4 * * 1"   # weekly
   workflow_dispatch:
