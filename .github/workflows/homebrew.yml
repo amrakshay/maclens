@@ -1,0 +1,36 @@
+name: Publish Homebrew cask
+
+# Manually (re)publish the cask for an existing GitHub Release, e.g. the first release made before the tap existed.
+# New releases are published automatically by release.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (e.g. v1.0.0)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build cask from the release asset
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          curl -fsSL -o "MacLens-$VERSION.zip" "https://github.com/amrakshay/maclens/releases/download/$TAG/MacLens-$VERSION.zip"
+          SHA=$(sha256sum "MacLens-$VERSION.zip" | awk '{print $1}')
+          ./scripts/make-cask.sh "$VERSION" "$SHA" > maclens.rb
+          cat maclens.rb
+      - name: Push to amrakshay/homebrew-tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          [ -n "$TAP_TOKEN" ] || { echo "::error::Add the HOMEBREW_TAP_TOKEN secret first (see docs/RELEASING.md)"; exit 1; }
+          ./scripts/publish-cask.sh maclens.rb "${TAG#v}"

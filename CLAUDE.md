@@ -91,6 +91,8 @@ Other flags:
 
 - **Commit messages and PR titles are [Conventional Commits](https://www.conventionalcommits.org/)** (`feat:`, `fix:`, `docs:`, `chore:`, `ci:`, …). release-please derives the version and CHANGELOG from them.
 - **Never edit `version.txt` or released CHANGELOG sections by hand.** The release PR does that.
+- Distribution is **GitHub Releases + the `amrakshay/homebrew-tap` cask only**. Releases are ad-hoc signed; there is no paid Apple signing or notarization by design, so don't add it.
+- The cask comes from `scripts/make-cask.sh`, and `scripts/publish-cask.sh` pushes it to the tap.
 - Full flow, secrets and one-time setup: [docs/RELEASING.md](docs/RELEASING.md).
 - CI runs on `macos-26`. The self-test skips hardware checks when `CI` is set, so any new hardware-dependent check must use `hardwareCheck`.
 

@@ -2,9 +2,8 @@
 # Builds dist/MacLens.app (release) and signs it.
 #   Version:  CFBundleShortVersionString from version.txt (managed by release-please);
 #             CFBundleVersion from $MACLENS_BUILD_NUMBER, else the git commit count.
-#   Signing:  $MACLENS_SIGN_IDENTITY if set (a stable identity keeps Full Disk Access across rebuilds; a
-#             "Developer ID Application" identity for public releases), otherwise ad-hoc.
-#             $MACLENS_HARDENED=1 adds the hardened runtime + secure timestamp that notarization requires.
+#   Signing:  ad-hoc by default (releases are free and not notarized). Set $MACLENS_SIGN_IDENTITY to a local
+#             self-signed code-signing identity to keep Full Disk Access across your own rebuilds.
 set -eu
 cd "$(dirname "$0")/.."
 swift build -c release --product MacLens
@@ -41,10 +40,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 IDENTITY="${MACLENS_SIGN_IDENTITY:--}"
-if [ "${MACLENS_HARDENED:-0}" = "1" ]; then
-  codesign --force --sign "$IDENTITY" --options runtime --timestamp "$APP"
-else
-  codesign --force --sign "$IDENTITY" --timestamp=none "$APP"
-fi
+codesign --force --sign "$IDENTITY" --timestamp=none "$APP"
 echo "Built $APP $VERSION ($BUILD), signed with: $IDENTITY"
 ls -lh "$APP/Contents/MacOS/MacLens" | awk '{print "binary size:", $5}'

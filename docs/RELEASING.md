@@ -17,9 +17,9 @@ Releases are automated. You merge pull requests, and CI handles versions, the ch
 
    After the merge, the workflow:
    1. tags `vX.Y.Z` and creates the GitHub Release with the changelog as notes;
-   2. on `macos-26`, runs the self-test, builds `MacLens.app` (version from `version.txt`, build number = CI run number), and signs and notarizes it if the Apple secrets exist;
+   2. on `macos-26`, runs the self-test and builds `MacLens.app` (version from `version.txt`, build number = CI run number, ad-hoc signed);
    3. packages `MacLens-X.Y.Z.zip` and its `.sha256`, attests build provenance, and uploads them to the release;
-   4. updates `Casks/maclens.rb` in `amrakshay/homebrew-tap`, if its token secret exists.
+   4. writes `Casks/maclens.rb` (new version + SHA-256) to `amrakshay/homebrew-tap`, so `brew upgrade` picks it up.
 
 Users can check that a download was built by this repo's CI with `gh attestation verify MacLens-X.Y.Z.zip --repo amrakshay/maclens`.
 
@@ -33,38 +33,36 @@ The first release (1.0.0) was pinned with `"release-as"` in `release-please-conf
 - Settings → Rules → Rulesets: protect `main`. Require a PR, require the `build-and-test` status check, and block force pushes and deletion.
 - Settings → Code security: enable **Private vulnerability reporting**, **Secret scanning** and **Push protection**. Dependabot alerts are optional.
 
-**Homebrew tap (optional; release uploads work without it):**
-1. Create a public repo `amrakshay/homebrew-tap` (empty, with a README).
-2. Create a fine-grained personal access token with **Contents: read and write** on that repo only.
-3. Add it to this repo: Settings → Secrets and variables → Actions → `HOMEBREW_TAP_TOKEN`.
+**Homebrew tap:** see [Homebrew tap setup](#homebrew-tap-setup) below.
 
-After the next release, users install with:
+## Homebrew tap setup
+
+MacLens is distributed through its own tap, `amrakshay/homebrew-tap`. The main `homebrew/cask` repo only accepts notarized apps, and MacLens deliberately isn't notarized.
+
+One-time setup:
+1. **Create the tap repo.** On GitHub, create a **public** repo named exactly **`homebrew-tap`** under `amrakshay`. Homebrew maps `amrakshay/tap` to `github.com/amrakshay/homebrew-tap`. Initialise it with a README.
+2. **Create a token for CI.** GitHub → Settings → Developer settings → Fine-grained personal access tokens → Generate new token:
+   - Resource owner: `amrakshay`. Expiration: up to 1 year (put a reminder in your calendar).
+   - Repository access: **Only select repositories → `homebrew-tap`**.
+   - Repository permissions: **Contents → Read and write**. Metadata read-only is added automatically.
+3. **Store the token.** In **this** repo (`maclens`): Settings → Secrets and variables → Actions → New repository secret → name **`HOMEBREW_TAP_TOKEN`**, value = the token.
+4. **Publish the current release once.** Actions → **Publish Homebrew cask** → Run workflow → tag `v1.0.0`. Every release after that updates the cask automatically in `release.yml`.
+
+Users then install and update with:
 
 ```bash
 brew install --cask amrakshay/tap/maclens
 ```
 
-## Signing and notarization (optional, later)
+```bash
+brew upgrade --cask maclens
+```
 
-Until these secrets exist, releases are ad-hoc signed. Users then have to allow the app once under System Settings → Privacy & Security → Open Anyway. Adding the secrets switches on Developer ID signing, the hardened runtime and notarization, with no workflow change needed.
+**When the token expires:** the Release workflow's "Update Homebrew tap" step fails. Create a new token and update the secret, then re-run **Publish Homebrew cask** for the latest tag.
 
-These require the Apple Developer Program.
+The cask comes from `scripts/make-cask.sh`, and `scripts/publish-cask.sh` pushes it. To change the cask (description, caveats, `depends_on`), edit `make-cask.sh`; the next release carries the change.
 
-| Secret | What it is |
-|---|---|
-| `MACOS_CERT_P12` | "Developer ID Application" certificate plus private key, exported as .p12, base64-encoded (`base64 -i cert.p12 \| pbcopy`) |
-| `MACOS_CERT_PASSWORD` | Password of that .p12 |
-| `MACOS_SIGN_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID)` |
-| `NOTARY_KEY_P8` | App Store Connect API key (.p8 contents), role Developer |
-| `NOTARY_KEY_ID` | That key's ID |
-| `NOTARY_ISSUER_ID` | Issuer ID from App Store Connect → Users and Access → Integrations |
-
-The signing and notarization steps have not been run yet, because there are no certificates. Expect to debug them on the first signed release. The hardened runtime may need entitlements if something breaks under it; test locally with `MACLENS_HARDENED=1 MACLENS_SIGN_IDENTITY="…" ./scripts/build-app.sh`.
-
-Once releases are notarized:
-- The Gatekeeper caveat in `scripts/package-release.sh` can go.
-- The app becomes eligible for the main `homebrew/cask` repo. That repo also needs notable popularity: at least 225 stars / 90 forks / 90 watchers when the author submits it.
-- Sparkle auto-updates become worthwhile.
+**Gatekeeper:** releases are ad-hoc signed and not notarized. That's free, with no Apple Developer Program. As a result, macOS blocks the first launch until the user clicks **Open Anyway** under System Settings → Privacy & Security. The cask's caveats and the README say so. Homebrew no longer offers a way to skip quarantine, so this step is expected.
 
 ## Building a release locally
 

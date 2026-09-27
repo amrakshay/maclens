@@ -37,10 +37,7 @@ jobs:
     env:
       TAG: ${{ needs.release-please.outputs.tag_name }}
       GH_TOKEN: ${{ github.token }}
-      # Optional: signing + notarization switch on automatically once these secrets exist (see docs/RELEASING.md).
-      HAS_SIGNING: ${{ secrets.MACOS_CERT_P12 != '' }}
-      HAS_NOTARY: ${{ secrets.NOTARY_KEY_P8 != '' }}
-      HAS_TAP: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+      HAS_TAP: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}   # tap update runs once the secret exists
     steps:
       - uses: actions/checkout@v7
         with:
@@ -52,44 +49,10 @@ jobs:
           CI: "true"
         run: swift run maclens-selftest
 
-      - name: Import Developer ID certificate
-        if: env.HAS_SIGNING == 'true'
-        env:
-          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-        run: |
-          KC="$RUNNER_TEMP/signing.keychain-db"; KCPW=$(uuidgen)
-          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security create-keychain -p "$KCPW" "$KC"
-          security set-keychain-settings -lut 21600 "$KC"
-          security unlock-keychain -p "$KCPW" "$KC"
-          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KC"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC"
-          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
-          rm "$RUNNER_TEMP/cert.p12"
-
-      - name: Build app
+      - name: Build app (ad-hoc signed)
         env:
           MACLENS_BUILD_NUMBER: ${{ github.run_number }}
-          MACLENS_SIGN_IDENTITY: ${{ env.HAS_SIGNING == 'true' && secrets.MACOS_SIGN_IDENTITY || '' }}
-          MACLENS_HARDENED: ${{ env.HAS_SIGNING == 'true' && '1' || '0' }}
-        run: |
-          [ -n "$MACLENS_SIGN_IDENTITY" ] || unset MACLENS_SIGN_IDENTITY   # ad-hoc when unsigned
-          ./scripts/build-app.sh
-
-      - name: Notarize and staple
-        if: env.HAS_SIGNING == 'true' && env.HAS_NOTARY == 'true'
-        env:
-          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
-          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: |
-          echo "$NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8"
-          ditto -c -k --keepParent dist/MacLens.app "$RUNNER_TEMP/notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --key "$RUNNER_TEMP/notary.p8" \
-            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait
-          xcrun stapler staple dist/MacLens.app
-          rm "$RUNNER_TEMP/notary.p8"
+        run: ./scripts/build-app.sh
 
       - name: Package
         run: ./scripts/package-release.sh
@@ -105,13 +68,4 @@ jobs:
         if: env.HAS_TAP == 'true'
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/amrakshay/homebrew-tap.git" "$RUNNER_TEMP/tap"
-          mkdir -p "$RUNNER_TEMP/tap/Casks"
-          cp dist/maclens.rb "$RUNNER_TEMP/tap/Casks/maclens.rb"
-          cd "$RUNNER_TEMP/tap"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks/maclens.rb
-          git commit -m "maclens ${TAG#v}" || exit 0
-          git push
+        run: ./scripts/publish-cask.sh dist/maclens.rb "${TAG#v}"

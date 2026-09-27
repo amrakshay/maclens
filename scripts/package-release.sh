@@ -11,32 +11,6 @@ ditto -c -k --sequesterRsrc --keepParent dist/MacLens.app "$ZIP"   # ditto keeps
 SHA=$(shasum -a 256 "$ZIP" | awk '{print $1}')
 echo "$SHA  MacLens-$VERSION.zip" > "$ZIP.sha256"
 
-cat > dist/maclens.rb <<CASK
-cask "maclens" do
-  version "$VERSION"
-  sha256 "$SHA"
-
-  url "https://github.com/amrakshay/maclens/releases/download/v#{version}/MacLens-#{version}.zip"
-  name "MacLens"
-  desc "Developer-focused Mac monitor: heat, battery drain, ports and build-artifact cleanup"
-  homepage "https://github.com/amrakshay/maclens"
-
-  depends_on arch: :arm64
-  depends_on macos: ">= :sonoma"
-
-  app "MacLens.app"
-
-  zap trash: [
-    "~/Library/Caches/dev.maclens",
-    "~/Library/Preferences/dev.maclens.MacLens.plist",
-  ]
-
-  caveats <<~EOS
-    MacLens release builds are not yet notarized by Apple. On first launch macOS will block it:
-      1. Open MacLens once (it will be blocked).
-      2. System Settings → Privacy & Security → "MacLens was blocked…" → Open Anyway.
-  EOS
-end
-CASK
+./scripts/make-cask.sh "$VERSION" "$SHA" > dist/maclens.rb
 echo "Packaged $ZIP"
 echo "sha256 $SHA"

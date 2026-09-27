@@ -16,15 +16,17 @@ It is written in Swift/SwiftUI with no third-party dependencies and needs no roo
 
 You need macOS 14 or later on Apple Silicon.
 
-**Homebrew** (once the tap is set up; see [docs/RELEASING.md](docs/RELEASING.md)):
+**Homebrew:**
 
 ```bash
 brew install --cask amrakshay/tap/maclens
 ```
 
+To update: `brew upgrade --cask maclens`.
+
 **Direct download:** get `MacLens-X.Y.Z.zip` from [Releases](https://github.com/amrakshay/maclens/releases/latest), unzip it, and move `MacLens.app` to Applications.
 
-Release builds aren't notarized by Apple yet, so macOS blocks the first launch. To allow it:
+MacLens is free and not notarized by Apple (notarization needs a paid Apple Developer account), so macOS blocks the first launch. To allow it:
 1. Open MacLens once.
 2. Go to System Settings → Privacy & Security, find "MacLens was blocked…", and click **Open Anyway**.
 
