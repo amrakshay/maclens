@@ -57,6 +57,9 @@ jobs:
       - name: Package
         run: ./scripts/package-release.sh
 
+      - name: Check version consistency (app, zip, cask, tag)
+        run: ./scripts/check-version.sh "$TAG"
+
       - uses: actions/attest@v4
         with:
           subject-path: dist/MacLens-*.zip
