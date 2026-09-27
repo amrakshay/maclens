@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/amrakshay/maclens/compare/v1.2.1...v1.3.0) (2026-09-27)
+
+
+### Features
+
+* informative About panel and visible update progress and errors ([#22](https://github.com/amrakshay/maclens/issues/22)) ([0a23efe](https://github.com/amrakshay/maclens/commit/0a23efefb49c4d26b1c6c458182fbf722f586784)), closes [#20](https://github.com/amrakshay/maclens/issues/20) [#21](https://github.com/amrakshay/maclens/issues/21)
+
 ## [1.2.1](https://github.com/amrakshay/maclens/compare/v1.2.0...v1.2.1) (2026-09-27)
 
 
