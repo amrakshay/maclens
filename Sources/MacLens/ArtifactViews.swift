@@ -228,6 +228,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            UpdateSettingsSection()
             Section("Refresh") {
                 Picker("While the window is visible", selection: $settings.refreshInterval) {
                     ForEach([1.0, 2.0, 3.0, 5.0, 10.0], id: \.self) { Text("\(Int($0)) s").tag($0) }

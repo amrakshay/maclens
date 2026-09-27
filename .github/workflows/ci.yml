@@ -30,6 +30,8 @@ jobs:
         run: ./scripts/build-app.sh
       - name: Package
         run: ./scripts/package-release.sh
+      - name: Check version consistency
+        run: ./scripts/check-version.sh
       - name: Lint Homebrew cask
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"

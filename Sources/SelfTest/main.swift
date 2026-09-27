@@ -253,6 +253,97 @@ ArtifactScanner.saveCache(ar)
 guard let ar2 = ArtifactScanner().scan(roots: [T], home: T, previous: ArtifactScanner.loadCache()) else { fatalError() }
 check(ar2.reusedSizes >= 5, "artifact rescan reused unchanged sizes (\(ar2.reusedSizes))")
 
+// MARK: - Updates
+section("Updates")
+do {
+    let v = { (s: String) in SemVer(s)! }
+    check(v("1.0.0") < v("1.0.1") && v("1.0.9") < v("1.1.0") && v("1.9.9") < v("2.0.0") && v("v1.2.3") == v("1.2.3"),
+          "semver ordering (patch < minor < major, v-prefix ignored)")
+    check(v("1.1.0-beta.1") < v("1.1.0") && !(v("1.1.0") < v("1.1.0")) && SemVer("abc") == nil, "prerelease sorts before release; junk rejected")
+
+    let good = ###"{"tag_name":"v1.2.0","draft":false,"prerelease":false,"published_at":"2026-09-27T18:06:17Z","html_url":"https://github.com/amrakshay/maclens/releases/tag/v1.2.0","body":"## [1.2.0](x)\n### Features\n* thing","assets":[{"name":"MacLens-1.2.0.zip","browser_download_url":"https://github.com/amrakshay/maclens/releases/download/v1.2.0/MacLens-1.2.0.zip"},{"name":"MacLens-1.2.0.zip.sha256","browser_download_url":"https://github.com/amrakshay/maclens/releases/download/v1.2.0/MacLens-1.2.0.zip.sha256"}]}"###
+    let r = try? Updater.parseRelease(Data(good.utf8))
+    check(r?.version == v("1.2.0") && r?.zipURL.lastPathComponent == "MacLens-1.2.0.zip" && r?.notes.contains("Features") == true && r?.publishedAt != nil,
+          "release JSON parsed (version, assets, notes, date)")
+    let evil = good.replacingOccurrences(of: "https://github.com/amrakshay/maclens/releases/download/v1.2.0/MacLens-1.2.0.zip\"", with: "https://evil.example/MacLens-1.2.0.zip\"")
+    check((try? Updater.parseRelease(Data(evil.utf8))) == nil, "assets not hosted on this repo's releases are rejected")
+    let draft = good.replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#)
+    check((try? Updater.parseRelease(Data(draft.utf8))) == nil, "draft releases are ignored")
+
+    check(Updater.installKind(bundlePath: "/Users/x/proj/.build/debug/MacLens") != .direct, "unbundled dev build is not auto-updated")
+    if case .unsupported = Updater.installKind(bundlePath: PathUtil.join(T, "dist/MacLens.app")) { check(true, "dist/ build is not auto-updated") } else { check(false, "dist/ build is not auto-updated") }
+    mkdir("apps/Caskroom/maclens")
+    let fakeBrew = PathUtil.join(T, "apps/brew"); write("apps/brew"); chmod(fakeBrew, 0o755)
+    check(Updater.installKind(bundlePath: PathUtil.join(T, "apps/MacLens.app"), caskrooms: [PathUtil.join(T, "apps/Caskroom/maclens")], brews: [fakeBrew]) == .homebrew(brew: fakeBrew),
+          "Homebrew install detected from the Caskroom entry")
+    check(Updater.installKind(bundlePath: PathUtil.join(T, "apps/MacLens.app"), caskrooms: [PathUtil.join(T, "nope")], brews: []) == .direct,
+          "direct download in a writable folder is updated in place")
+
+    check(Updater.parseChecksumFile("A1B2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90  MacLens-1.2.0.zip") == "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
+          && Updater.parseChecksumFile("nonsense") == nil, "checksum file parsed; garbage rejected")
+
+    // Build tiny ad-hoc-signed MacLens-like bundles to exercise verification and the full direct install.
+    func makeBundle(_ rel: String, version: String, id: String = Updater.bundleID) -> URL {
+        let app = URL(fileURLWithPath: PathUtil.join(T, rel))
+        try! fm.createDirectory(at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+        try! fm.copyItem(atPath: "/usr/bin/true", toPath: app.appendingPathComponent("Contents/MacOS/MacLens").path)
+        let plist: [String: Any] = ["CFBundleIdentifier": id, "CFBundleShortVersionString": version, "CFBundleExecutable": "MacLens",
+                                    "CFBundlePackageType": "APPL", "CFBundleName": "MacLens"]
+        (plist as NSDictionary).write(to: app.appendingPathComponent("Contents/Info.plist"), atomically: true)
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        p.arguments = ["--force", "--sign", "-", app.path]; p.standardError = FileHandle.nullDevice
+        try! p.run(); p.waitUntilExit()
+        return app
+    }
+    let newer = makeBundle("upd/new/MacLens.app", version: "9.0.0")
+    check((try? Updater.verifyBundle(newer, newerThan: v("1.0.0"))) == v("9.0.0"), "valid newer bundle passes verification")
+    check((try? Updater.verifyBundle(newer, newerThan: v("9.0.0"))) == nil, "same version is refused")
+    let wrongID = makeBundle("upd/wrong/MacLens.app", version: "9.0.0", id: "com.example.other")
+    check((try? Updater.verifyBundle(wrongID, newerThan: v("1.0.0"))) == nil, "different bundle identifier is refused")
+    let tampered = makeBundle("upd/tampered/MacLens.app", version: "9.0.0")
+    try! "hacked".write(to: tampered.appendingPathComponent("Contents/MacOS/MacLens"), atomically: true, encoding: .utf8)
+    check((try? Updater.verifyBundle(tampered, newerThan: v("1.0.0"))) == nil, "bundle modified after signing is refused")
+
+    // End-to-end direct install from local files: zip + checksum → verify → swap the "installed" app.
+    let installed = makeBundle("upd/Applications/MacLens.app", version: "1.0.0")
+    let zipURL = URL(fileURLWithPath: PathUtil.join(T, "upd/MacLens-9.0.0.zip"))
+    let z = Process(); z.executableURL = URL(fileURLWithPath: "/usr/bin/ditto"); z.arguments = ["-c", "-k", "--keepParent", newer.path, zipURL.path]
+    try! z.run(); z.waitUntilExit()
+    let shaURL = URL(fileURLWithPath: zipURL.path + ".sha256")
+    try! "\(try! Updater.sha256Hex(of: zipURL))  MacLens-9.0.0.zip\n".write(to: shaURL, atomically: true, encoding: .utf8)
+    let rel = ReleaseInfo(version: v("9.0.0"), tag: "v9.0.0", notes: "", publishedAt: nil,
+                          pageURL: URL(string: "https://github.com/amrakshay/maclens")!, zipURL: zipURL, sha256URL: shaURL)
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var installErr: Error?
+    Task { do { try await Updater.installDirect(rel, replacing: installed, currentVersion: v("1.0.0")) { _ in } } catch { installErr = error }; done.signal() }
+    done.wait()
+    let nowVersion = NSDictionary(contentsOf: installed.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String
+    check(installErr == nil && nowVersion == "9.0.0", "direct install swapped the app to 9.0.0 (\(installErr?.localizedDescription ?? "ok"))")
+
+    let badSha = URL(fileURLWithPath: PathUtil.join(T, "upd/bad.sha256"))
+    try! "\(String(repeating: "0", count: 64))  MacLens-9.0.0.zip\n".write(to: badSha, atomically: true, encoding: .utf8)
+    let installed2 = makeBundle("upd/Applications2/MacLens.app", version: "1.0.0")
+    let relBad = ReleaseInfo(version: v("9.0.0"), tag: "v9.0.0", notes: "", publishedAt: nil,
+                             pageURL: URL(string: "https://github.com/amrakshay/maclens")!, zipURL: zipURL, sha256URL: badSha)
+    nonisolated(unsafe) var badErr: Error?
+    Task { do { try await Updater.installDirect(relBad, replacing: installed2, currentVersion: v("1.0.0")) { _ in } } catch { badErr = error }; done.signal() }
+    done.wait()
+    let still = NSDictionary(contentsOf: installed2.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String
+    check(badErr != nil && still == "1.0.0", "checksum mismatch aborts and leaves the installed app untouched")
+
+    // Live: the real latest release parses (skipped when offline / rate-limited).
+    nonisolated(unsafe) var live: ReleaseInfo?
+    nonisolated(unsafe) var liveErr: Error?
+    Task { do { live = try await Updater.fetchLatest(currentVersion: "0.0.0") } catch { liveErr = error }; done.signal() }
+    done.wait()
+    if let live {
+        check(live.version >= v("1.0.0") && live.zipURL.absoluteString.hasPrefix("https://github.com/amrakshay/maclens/releases/download/"),
+              "live latest release: \(live.tag)")
+    } else {
+        print("  – skipped live release check: \(liveErr?.localizedDescription ?? "unknown")")
+    }
+}
+
 // MARK: - Deletion guard
 section("Deletion guard")
 let blocked = ["/System/Library", "/usr/bin/true", "/usr/local", "/bin/ls", "/sbin/mount", "/Library/Preferences", "/private/var/log",

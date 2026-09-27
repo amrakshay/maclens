@@ -143,6 +143,7 @@ struct PortRow: Identifiable, Hashable {
     @Published var tab: Tab = .dashboard { didSet { updateMode() } }
     let history = HistoryStore()
     let sleep = SleepStore()
+    let updates = UpdateStore()
     @Published private(set) var windowVisible = false
     private let engine = Engine()
     private var observers: [NSObjectProtocol] = []
@@ -159,7 +160,9 @@ struct PortRow: Identifiable, Hashable {
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.refreshVisibility() } }
             })
         }
-        if settings.notifyThermal || settings.notifyRunaway || settings.notifyBattery { notifier.requestAuthorization() }
+        if settings.notifyThermal || settings.notifyRunaway || settings.notifyBattery || updates.autoCheck { notifier.requestAuthorization() }
+        updates.notify = { [weak self] r in self?.notifier.postUpdate(r, current: self?.updates.currentVersionString ?? "") }
+        updates.start()
     }
 
     var shouldOpenWindowAtLaunch: Bool {
@@ -331,16 +334,22 @@ struct HistoryPoint: Identifiable {
         }
     }
 
+    /// One notification per new version; clicking it opens the update window (see AppDelegate).
+    func postUpdate(_ r: ReleaseInfo, current: String) {
+        post("MacLens \(r.version.description) is available", "You have \(current). Click to see what's new and update.", userInfo: ["kind": "update"])
+    }
+
     func sendTest() {
         requestAuthorization()
         post("MacLens test alert", "Notifications are working. Battery, thermal and runaway-process alerts will look like this.")
     }
 
-    private func post(_ title: String, _ body: String) {
+    private func post(_ title: String, _ body: String, userInfo: [String: String] = [:]) {
         guard available else { NSLog("MacLens notification: \(title) — \(body)"); return }
         let c = UNMutableNotificationContent()
         c.title = title
         c.body = body
+        c.userInfo = userInfo
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
     }
 }

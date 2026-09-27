@@ -4,7 +4,8 @@ Thanks for helping! Bug reports, ideas and pull requests are all welcome.
 
 ## Before you start
 
-- For anything bigger than a small fix, open an issue first so we can agree on the approach.
+- **Every change starts with a GitHub issue.** Search the existing ones first. If none fits, open one describing the problem, the proposed change and how we'll know it's done.
+- **Work on a branch and open a pull request.** Nothing is committed to `main` directly. Name branches `<type>/<issue>-<slug>` (e.g. `fix/12-ports-udp`) and put `Closes #<issue>` in the PR description.
 - MacLens has three design rules. Please keep them:
   - **No third-party dependencies.**
   - **No feature that requires root.**

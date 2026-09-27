@@ -1,10 +1,31 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 import MacLensCore
 
 /// Clicking the Dock icon with no window open asks the menu bar label (always alive) to reopen the main window.
-final class AppDelegate: NSObject, NSApplicationDelegate {
+/// Clicking an "update available" notification opens the update window the same way.
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     static let reopen = Notification.Name("MacLensReopenMainWindow")
+    static let showUpdate = Notification.Name("MacLensShowUpdateWindow")
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        if Bundle.main.bundleURL.pathExtension == "app" { UNUserNotificationCenter.current().delegate = self }
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
+        let isUpdate = (response.notification.request.content.userInfo["kind"] as? String) == "update"
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: isUpdate ? Self.showUpdate : Self.reopen, object: nil)
+        }
+        completionHandler()
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound]) // show alerts even while MacLens is frontmost
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { NotificationCenter.default.post(name: Self.reopen, object: nil) }
         return true
@@ -23,6 +44,7 @@ struct MacLensApp: App {
                 .environmentObject(model)
                 .environmentObject(model.summary)
                 .environmentObject(model.sleep)
+                .environmentObject(model.updates)
         } label: {
             MenuBarLabel(model: model, summary: model.summary, sleep: model.sleep)
         }
@@ -38,9 +60,15 @@ struct MacLensApp: App {
                 .environmentObject(model.artifacts)
                 .environmentObject(model.history)
                 .environmentObject(model.sleep)
+                .environmentObject(model.updates)
                 .frame(minWidth: 900, minHeight: 560)
         }
         .defaultSize(width: 1180, height: 740)
+
+        Window("Update MacLens", id: "update") {
+            UpdateWindow().environmentObject(model.updates)
+        }
+        .windowResizability(.contentSize)
     }
 }
 
@@ -59,6 +87,10 @@ struct MenuBarLabel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.reopen)) { _ in
             openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.showUpdate)) { _ in
+            openWindow(id: "update")
             NSApp.activate(ignoringOtherApps: true)
         }
         .task {
@@ -106,10 +138,21 @@ struct MenuBarView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var summary: SummaryStore
     @EnvironmentObject var sleep: SleepStore
+    @EnvironmentObject var updates: UpdateStore
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if let r = updates.available {
+                Button {
+                    openWindow(id: "update")
+                    NSApp.activate(ignoringOtherApps: true)
+                } label: {
+                    Label("MacLens \(r.version.description) is available — update…", systemImage: "arrow.down.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                Divider()
+            }
             HStack {
                 Image(systemName: summary.thermalState.symbol).foregroundStyle(summary.thermalState.color)
                 Text("Thermal: \(summary.thermalState.label)").font(.headline)

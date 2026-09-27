@@ -14,6 +14,7 @@ let package = Package(
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreServices"),
                 .linkedFramework("Security"),
+                .linkedFramework("CryptoKit"),
             ]
         ),
         .executableTarget(name: "MacLens", dependencies: ["MacLensCore"]),
