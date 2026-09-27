@@ -238,8 +238,18 @@ public enum Updater {
     /// app is verified like a direct download; only then is Homebrew's quarantine flag cleared (#11).
     public static func installHomebrew(brew: String, appPath: String, currentVersion: SemVer, clearQuarantine clearFlag: Bool = true,
                                        progress: @escaping @Sendable (String) -> Void) async throws {
+        // brew only auto-refreshes taps once every HOMEBREW_AUTO_UPDATE_SECS (default 24 h), so right after another
+        // `brew update` it would still see the old cask and "upgrade" nothing (#17). Refresh explicitly, then upgrade
+        // without a second auto-update.
+        progress("Refreshing Homebrew (brew update)…")
+        let upd = await Task.detached { run(brew, ["update", "--quiet"], env: ["HOMEBREW_NO_ENV_HINTS": "1"]) }.value
+        guard upd.status == 0 else {
+            throw UpdateError.install("brew update failed:\n" + upd.output.suffix(800))
+        }
         progress("Running brew upgrade --cask maclens…")
-        let out = await Task.detached { run(brew, ["upgrade", "--cask", "maclens"], env: ["HOMEBREW_NO_ENV_HINTS": "1"]) }.value
+        let out = await Task.detached {
+            run(brew, ["upgrade", "--cask", "maclens"], env: ["HOMEBREW_NO_ENV_HINTS": "1", "HOMEBREW_NO_AUTO_UPDATE": "1"])
+        }.value
         guard out.status == 0 else {
             throw UpdateError.install("brew upgrade failed:\n" + out.output.suffix(800))
         }
@@ -248,7 +258,7 @@ public enum Updater {
         do {
             _ = try verifyBundle(app, newerThan: currentVersion)
         } catch UpdateError.notNewer {
-            throw UpdateError.install("brew finished but the installed app isn't newer yet. Homebrew may not have seen the new cask; try `brew update` and update again.")
+            throw UpdateError.install("brew finished but the installed app isn't newer. Run `brew update && brew upgrade --cask maclens` in Terminal, then reopen MacLens.")
         }
         if clearFlag { clearQuarantine(app) }
     }

@@ -341,7 +341,19 @@ do {
     let src = makeBundle("upd/brew/src/MacLens.app", version: "9.1.0")
     quarantine(src)
     let fakeBrewUp = PathUtil.join(T, "upd/brew/brew")
-    try! "#!/bin/sh\n/bin/rm -rf '\(brewApp.path)' && /usr/bin/ditto '\(src.path)' '\(brewApp.path)'\n".write(toFile: fakeBrewUp, atomically: true, encoding: .utf8)
+    // Fake brew: `update` records that the tap was refreshed; `upgrade` only "sees" the new version after an update
+    // and with auto-update disabled — mirroring #17, where a stale tap made upgrade a silent no-op.
+    let brewLog = PathUtil.join(T, "upd/brew/calls.log")
+    try! """
+    #!/bin/sh
+    echo "$* NO_AUTO_UPDATE=$HOMEBREW_NO_AUTO_UPDATE" >> '\(brewLog)'
+    case "$1" in
+      update) touch '\(brewLog).updated' ;;
+      upgrade) [ -f '\(brewLog).updated' ] || exit 0
+               /bin/rm -rf '\(brewApp.path)' && /usr/bin/ditto '\(src.path)' '\(brewApp.path)' ;;
+    esac
+
+    """.write(toFile: fakeBrewUp, atomically: true, encoding: .utf8)
     chmod(fakeBrewUp, 0o755)
     nonisolated(unsafe) var brewErr: Error?
     Task { do { try await Updater.installHomebrew(brew: fakeBrewUp, appPath: brewApp.path, currentVersion: v("1.0.0")) { _ in } } catch { brewErr = error }; done.signal() }
@@ -349,6 +361,9 @@ do {
     let brewV = NSDictionary(contentsOf: brewApp.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String
     check(brewErr == nil && brewV == "9.1.0" && !Updater.isQuarantined(brewApp),
           "Homebrew path: upgraded app verified and quarantine cleared (\(brewErr?.localizedDescription ?? "ok"))")
+    let calls = (try? String(contentsOfFile: brewLog, encoding: .utf8)) ?? ""
+    check(calls.hasPrefix("update") && calls.contains("upgrade --cask maclens NO_AUTO_UPDATE=1"),
+          "Homebrew path: taps refreshed with `brew update` before upgrading (#17): \(calls.split(separator: "\n").map(String.init))")
     let fakeBrewNoop = PathUtil.join(T, "upd/brew/brew-noop")
     try! "#!/bin/sh\nexit 0\n".write(toFile: fakeBrewNoop, atomically: true, encoding: .utf8); chmod(fakeBrewNoop, 0o755)
     nonisolated(unsafe) var noopErr: Error?
