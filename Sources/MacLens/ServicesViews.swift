@@ -60,8 +60,17 @@ import MacLensCore
             if case .running(let pid) = s, let p = byPid[pid] { r.cpu = p.cpu; r.memory = p.memory; r.memoryIsFootprint = p.memoryIsFootprint }
             return r
         }
-        for r in new where r.state.isRunning || Date().timeIntervalSince(starting[r.id] ?? .distantPast) > 120 {
-            if starting[r.id] != nil { starting[r.id] = nil }
+        // The CLI gives up waiting after ~2 s ("⚠️ … not listening on port … yet"); replace that once the port opens, or after 2 min.
+        for r in new {
+            guard let since = starting[r.id] else { continue }
+            let c = r.component
+            if r.state.isRunning {
+                starting[r.id] = nil
+                messages[r.id] = Message(ok: true, text: "✅ \(c.title) is up and listening on port \(c.port).")
+            } else if Date().timeIntervalSince(since) > 120 {
+                starting[r.id] = nil
+                messages[r.id] = Message(ok: false, text: "❌ \(c.title) still isn't listening on port \(c.port) after 2 minutes. See `voicemode service logs \(c.id)`.")
+            }
         }
         if new != rows { rows = new }
     }
