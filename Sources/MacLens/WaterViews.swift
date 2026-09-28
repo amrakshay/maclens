@@ -323,11 +323,15 @@ struct WaterSettingsSection: View {
         return z.filter { seen.insert($0).inserted }
     }
 
+    /// "India — IST (UTC+5:30)", "America/New York (UTC-4)", "… — this Mac".
     private func zoneLabel(_ id: String) -> String {
-        let tz = TimeZone(identifier: id)
-        let abbr = tz?.abbreviation() ?? ""
-        let name = id == "Asia/Kolkata" ? "India (IST)" : id.replacingOccurrences(of: "_", with: " ")
-        return id == TimeZone.current.identifier && id != "Asia/Kolkata" ? "\(name) — this Mac (\(abbr))" : "\(name) (\(abbr))"
+        guard let tz = TimeZone(identifier: id) else { return id }
+        let secs = tz.secondsFromGMT()
+        let h = abs(secs) / 3600, m = abs(secs) % 3600 / 60
+        let offset = "UTC" + (secs < 0 ? "-" : "+") + (m == 0 ? "\(h)" : String(format: "%d:%02d", h, m))
+        var label = id == "Asia/Kolkata" ? "India — IST (\(offset))" : id == "UTC" ? "UTC" : "\(id.replacingOccurrences(of: "_", with: " ")) (\(offset))"
+        if id == TimeZone.current.identifier { label += " — this Mac" }
+        return label
     }
 }
 
