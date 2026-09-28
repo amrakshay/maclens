@@ -18,20 +18,13 @@ struct ProcessesView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var monitor: MonitorStore
     @EnvironmentObject var settings: Settings
-    @State private var sortOrder = [KeyPathComparator(\Row.p.cpu, order: .reverse)]
+    @State private var sortOrder = [KeyPathComparator(\PositionRow<ProcSample>.item.cpu, order: .reverse)]
     @State private var selection: ProcSample.ID?
     @State private var appSelection: AppRow.ID?
     @State private var search = ""
 
-    /// Rows are identified by position, not PID. With PIDs, every re-sort (or CPU reshuffle between ticks) became a
-    /// table move per row, and moving a row makes NSTableView build its cells even off screen: sorting ~700 processes
-    /// froze the UI and left ~400 MB of cells behind (#32). By position, a re-sort only refreshes the visible rows.
-    struct Row: Identifiable { var id: Int; let p: ProcSample }
-
-    var rows: [Row] {
-        monitor.processes.filter { p in
-            (!settings.hideSystemProcesses || !p.isSystem) && p.matches(search)
-        }.map { Row(id: 0, p: $0) }.sorted(using: sortOrder).enumerated().map { Row(id: $0.offset, p: $0.element.p) }
+    var rows: [PositionRow<ProcSample>] {
+        PositionRow.sorted(monitor.processes.filter { p in (!settings.hideSystemProcesses || !p.isSystem) && p.matches(search) }, by: sortOrder)
     }
 
     var body: some View {
@@ -65,32 +58,29 @@ struct ProcessesView: View {
 
     @ViewBuilder private var processTable: some View {
         let rows = self.rows
-        // Selection still follows the PID, so it stays on the same process as rows move.
-        let rowSelection = Binding<Int?>(get: { selection.flatMap { pid in rows.firstIndex { $0.p.pid == pid } } },
-                                         set: { i in selection = i.map { rows[$0].p.pid } })
-        Table(rows, selection: rowSelection, sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.p.name) { r in
-                let p = r.p
+        Table(rows, selection: rows.selection($selection), sortOrder: $sortOrder) {
+            TableColumn("Name", value: \.item.name) { r in
+                let p = r.item
                 HStack(spacing: 4) {
                     Text(p.name).lineLimit(1)
                     if p.isSystem { Image(systemName: "gearshape.fill").foregroundStyle(.tertiary).help("System: " + p.systemReasons.joined(separator: "; ")) }
                 }
             }.width(min: 160, ideal: 220)
-            TableColumn("PID", value: \.p.pid) { Text(String($0.p.pid)).monospacedDigit() }.width(60)
-            TableColumn("User", value: \.p.user) { Text($0.p.user) }.width(min: 60, ideal: 90)
-            TableColumn("CPU %", value: \.p.cpu) { Text(Fmt.pct($0.p.cpu)).monospacedDigit() }.width(60)
-            TableColumn("Memory", value: \.p.memory) { r in
-                let p = r.p
+            TableColumn("PID", value: \.item.pid) { Text(String($0.item.pid)).monospacedDigit() }.width(60)
+            TableColumn("User", value: \.item.user) { Text($0.item.user) }.width(min: 60, ideal: 90)
+            TableColumn("CPU %", value: \.item.cpu) { Text(Fmt.pct($0.item.cpu)).monospacedDigit() }.width(60)
+            TableColumn("Memory", value: \.item.memory) { r in
+                let p = r.item
                 Text(Fmt.bytes(p.memory)).monospacedDigit()
                     .help(p.memoryIsFootprint ? "Physical footprint (what Activity Monitor shows)" : "Resident size — footprint of other users' processes needs root")
             }.width(80)
-            TableColumn("Energy", value: \.p.energyW) { r in
-                let p = r.p
+            TableColumn("Energy", value: \.item.energyW) { r in
+                let p = r.item
                 Text(Fmt.watts(p.energyW, estimated: p.energyEstimated)).monospacedDigit()
                     .help(p.energyEstimated ? "Estimated from CPU time (other users' energy counters need root)" : "Measured by the kernel's per-process CPU energy counter (rusage)")
             }.width(80)
-            TableColumn("Energy (5 min)", value: \.p.avgEnergyW) { r in
-                Text(Fmt.watts(r.p.avgEnergyW, estimated: !r.p.isOwn)).monospacedDigit()
+            TableColumn("Energy (5 min)", value: \.item.avgEnergyW) { r in
+                Text(Fmt.watts(r.item.avgEnergyW, estimated: !r.item.isOwn)).monospacedDigit()
             }.width(95)
         }
         StatusBar(left: "\(rows.count) processes shown · updated \(monitor.updated.formatted(date: .omitted, time: .standard))",

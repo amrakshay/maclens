@@ -10,46 +10,50 @@ extension Artifact {
 struct ArtifactsView: View {
     @EnvironmentObject var store: ArtifactStore
     @State private var selection = Set<Artifact.ID>()
-    @State private var sortOrder = [KeyPathComparator(\Artifact.allocSize, order: .reverse)]
+    @State private var sortOrder = [KeyPathComparator(\PositionRow<Artifact>.item.allocSize, order: .reverse)]
     @State private var confirm: DeleteMode?
     @State private var outcome: String?
 
-    var rows: [Artifact] { store.filtered.sorted(using: sortOrder) }
-    var selected: [Artifact] { rows.filter { selection.contains($0.id) } }
+    var rows: [PositionRow<Artifact>] { PositionRow.sorted(store.filtered, by: sortOrder) }
+    var selected: [Artifact] { rows.map(\.item).filter { selection.contains($0.id) } }
 
     var body: some View {
         let rows = self.rows
         VStack(spacing: 0) {
             header
-            Table(rows, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn("Type", value: \.kindName) { a in
+            Table(rows, selection: rows.selection($selection), sortOrder: $sortOrder) {
+                TableColumn("Type", value: \.item.kindName) { row in
+                    let a = row.item
                     HStack(spacing: 4) {
                         if let r = store.verdict(a).reason { Image(systemName: "lock.fill").foregroundStyle(.orange).help("Can't delete: \(r)") }
                         Text(a.kind.displayName)
                         if a.kind.isGlobalCache { Image(systemName: "globe").foregroundStyle(.secondary).help("Shared cache: " + (a.kind.redownloadWarning ?? "")) }
                     }.help("Detected as " + a.kind.detectionRule)
                 }.width(min: 120, ideal: 150)
-                TableColumn("Size", value: \.allocSize) { Text(Fmt.bytes($0.allocSize)).monospacedDigit() }.width(80)
-                TableColumn("Reclaimable", value: \.reclaimable) { a in
+                TableColumn("Size", value: \.item.allocSize) { Text(Fmt.bytes($0.item.allocSize)).monospacedDigit() }.width(80)
+                TableColumn("Reclaimable", value: \.item.reclaimable) { r in
+                    let a = r.item
                     Text(Fmt.bytes(a.reclaimable)).monospacedDigit()
                         .help("Estimated space freed by deleting it. Excludes hard-linked files (e.g. pnpm store links) and blocks shared with APFS clones. Local snapshots can delay the space being freed.")
                 }.width(90)
-                TableColumn("Project", value: \.projectName) { a in Text(a.projectName).help(a.projectPath ?? "") }.width(min: 100, ideal: 150)
-                TableColumn("Last activity", value: \.lastActivitySort) { a in
+                TableColumn("Project", value: \.item.projectName) { r in Text(r.item.projectName).help(r.item.projectPath ?? "") }.width(min: 100, ideal: 150)
+                TableColumn("Last activity", value: \.item.lastActivitySort) { r in
+                    let a = r.item
                     VStack(alignment: .leading, spacing: 0) {
                         Text(Fmt.relative(a.lastActivity))
                         Text(a.lastActivitySource).font(.caption2).foregroundStyle(.secondary)
                     }
                     .help(activityHelp(a))
                 }.width(min: 110, ideal: 140)
-                TableColumn("Path", value: \.path) { a in
+                TableColumn("Path", value: \.item.path) { r in
+                    let a = r.item
                     Text(PathUtil.abbreviate(a.path)).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle).help(a.path)
                 }
             }
-            .contextMenu(forSelectionType: Artifact.ID.self) { ids in
-                Button("Reveal in Finder") { reveal(ids) }
-            } primaryAction: { ids in reveal(ids) }
-            footer(rows)
+            .contextMenu(forSelectionType: Int.self) { positions in
+                Button("Reveal in Finder") { reveal(Set(rows.items(at: positions).map(\.id))) }
+            } primaryAction: { positions in reveal(Set(rows.items(at: positions).map(\.id))) }
+            footer(rows.map(\.item))
         }
         .sheet(item: Binding(get: { confirm.map(ModeBox.init) }, set: { confirm = $0?.mode })) { box in
             DeleteConfirmSheet(items: selected, mode: box.mode, verdict: store.verdict) { mode in

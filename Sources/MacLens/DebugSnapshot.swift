@@ -16,6 +16,8 @@ import MacLensCore
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try? await Task.sleep(for: .seconds(2))
             model.refreshVisibility()
+            let grouped = model.settings.groupProcessesByApp
+            model.settings.groupProcessesByApp = false // processes.png is the flat list; processes-apps.png the grouped one
             for tab in Tab.allCases {
                 if tab == .storage && model.disk.scanning { while model.disk.scanning { try? await Task.sleep(for: .seconds(1)) } }
                 model.tab = tab
@@ -27,7 +29,6 @@ import MacLensCore
                 if tab == .dashboard { renderOffscreen(DashboardContent(), model: model, to: dir.appendingPathComponent("dashboard-content.png")) }
             }
             // Processes grouped by application (#34).
-            let grouped = model.settings.groupProcessesByApp
             model.settings.groupProcessesByApp = true
             model.tab = .processes
             try? await Task.sleep(for: .seconds(3))

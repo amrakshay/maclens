@@ -5,19 +5,20 @@ import MacLensCore
 struct StorageView: View {
     @EnvironmentObject var disk: DiskStore
     @State private var selection: DiskItem.ID?
-    @State private var sortOrder = [KeyPathComparator(\DiskItem.alloc, order: .reverse)]
+    @State private var sortOrder = [KeyPathComparator(\PositionRow<DiskItem>.item.alloc, order: .reverse)]
     @State private var confirmTrash: DiskItem?
     @State private var error: String?
 
-    var rows: [DiskItem] {
+    var rows: [PositionRow<DiskItem>] {
         let base = disk.items
-        if sortOrder.first?.keyPath == \DiskItem.alloc && disk.showLogical {
-            return base.sorted { sortOrder.first?.order == .reverse ? $0.logical > $1.logical : $0.logical < $1.logical }
+        if sortOrder.first?.keyPath == \PositionRow<DiskItem>.item.alloc && disk.showLogical {
+            return PositionRow.numbered(base.sorted { sortOrder.first?.order == .reverse ? $0.logical > $1.logical : $0.logical < $1.logical })
         }
-        return base.sorted(using: sortOrder)
+        return PositionRow.sorted(base, by: sortOrder)
     }
 
     var body: some View {
+        let rows = self.rows
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Picker("Scan", selection: Binding(get: { disk.target }, set: { disk.setTarget($0) })) {
@@ -67,8 +68,9 @@ struct StorageView: View {
                     Text(Fmt.bytes(disk.currentTotal)).monospacedDigit().foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 10).padding(.bottom, 6)
-                Table(rows, selection: $selection, sortOrder: $sortOrder) {
-                    TableColumn("Name", value: \.name) { item in
+                Table(rows, selection: rows.selection($selection), sortOrder: $sortOrder) {
+                    TableColumn("Name", value: \.item.name) { r in
+                        let item = r.item
                         HStack(spacing: 6) {
                             Image(systemName: item.isDirectory ? "folder.fill" : "doc").foregroundStyle(item.isDirectory ? .blue : .secondary)
                             Text(item.name).lineLimit(1)
@@ -76,24 +78,25 @@ struct StorageView: View {
                             if item.hardlinked { Image(systemName: "link").foregroundStyle(.secondary).help("Hard link — its bytes are shared with another path") }
                         }
                     }.width(min: 220, ideal: 340)
-                    TableColumn("Size", value: \.alloc) { item in
-                        Text(Fmt.bytes(disk.showLogical ? item.logical : item.alloc)).monospacedDigit()
+                    TableColumn("Size", value: \.item.alloc) { r in
+                        Text(Fmt.bytes(disk.showLogical ? r.item.logical : r.item.alloc)).monospacedDigit()
                     }.width(90)
-                    TableColumn("") { item in
+                    TableColumn("") { r in
+                        let item = r.item
                         let total = max(1, disk.currentTotal)
                         let frac = Double(disk.showLogical ? item.logical : item.alloc) / Double(total)
                         ProgressView(value: min(1, max(0, frac))).help(String(format: "%.1f%% of this folder", frac * 100))
                     }.width(90)
-                    TableColumn("Items", value: \.items) { Text($0.isDirectory ? String($0.items) : "").monospacedDigit() }.width(70)
-                    TableColumn("Modified", value: \.modified) { Text($0.modified.formatted(date: .abbreviated, time: .shortened)) }.width(140)
+                    TableColumn("Items", value: \.item.items) { Text($0.item.isDirectory ? String($0.item.items) : "").monospacedDigit() }.width(70)
+                    TableColumn("Modified", value: \.item.modified) { Text($0.item.modified.formatted(date: .abbreviated, time: .shortened)) }.width(140)
                 }
-                .contextMenu(forSelectionType: DiskItem.ID.self) { ids in
-                    if let id = ids.first, let item = disk.items.first(where: { $0.id == id }) {
+                .contextMenu(forSelectionType: Int.self) { positions in
+                    if let item = rows.items(at: positions).first {
                         Button("Reveal in Finder") { reveal(item) }
                         if item.isDirectory { Button("Open") { disk.open(item.treeIndex) } }
                     }
-                } primaryAction: { ids in
-                    if let id = ids.first, let item = disk.items.first(where: { $0.id == id }), item.isDirectory { disk.open(item.treeIndex) }
+                } primaryAction: { positions in
+                    if let item = rows.items(at: positions).first, item.isDirectory { disk.open(item.treeIndex) }
                 }
                 if let id = selection, let item = disk.items.first(where: { $0.id == id }) {
                     StorageDetail(item: item, onReveal: { reveal(item) }, onTrash: { confirmTrash = item })
