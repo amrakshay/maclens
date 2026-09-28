@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.0](https://github.com/amrakshay/maclens/compare/v1.4.0...v1.5.0) (2026-09-28)
+
+
+### Features
+
+* group the Processes tab by application ([#37](https://github.com/amrakshay/maclens/issues/37)) ([1fdf9ba](https://github.com/amrakshay/maclens/commit/1fdf9ba58e1f48fe906ecff32fac868066ef204d))
+
+
+### Performance Improvements
+
+* raise default refresh intervals to 5 s (window) and 10 s (background) ([#36](https://github.com/amrakshay/maclens/issues/36)) ([9ea4f24](https://github.com/amrakshay/maclens/commit/9ea4f247652d664ce0f54cb909e6bac7c534907a)), closes [#35](https://github.com/amrakshay/maclens/issues/35)
+* stop tables from building every row's cells when they re-sort ([#33](https://github.com/amrakshay/maclens/issues/33)) ([7d2d85d](https://github.com/amrakshay/maclens/commit/7d2d85d9734615fb398c1de46a1e32b8a5426fcb))
+
 ## [1.4.0](https://github.com/amrakshay/maclens/compare/v1.3.0...v1.4.0) (2026-09-28)
 
 
