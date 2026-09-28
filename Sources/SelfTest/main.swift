@@ -24,6 +24,13 @@ func hardwareCheck(_ ok: Bool, _ msg: String) {
 func peakRSSMB() -> Double { var ru = rusage(); getrusage(RUSAGE_SELF, &ru); return Double(ru.ru_maxrss) / 1_048_576 }
 
 let args = CommandLine.arguments
+if args.contains("--groups") { // read-only: print live application groups, biggest memory first
+    let s = ProcessSampler(); _ = s.sample(includeForeign: true); usleep(500_000)
+    for g in AppGrouping.group(s.sample(includeForeign: true)).sorted(by: { $0.memory > $1.memory }).prefix(15) {
+        print(String(format: "%5d  %6.1f%%  %10lld  ", g.processes.count, g.cpu, g.memory) + g.id)
+    }
+    exit(0)
+}
 if let i = args.firstIndex(of: "--scan"), i + 1 < args.count {
     let root = args[i + 1]
     let scanner = DiskScanner()
@@ -113,12 +120,62 @@ let me = procs.first { $0.pid == getpid() }
 check(me != nil && me!.cpu > 0 && me!.memory > 0 && me!.memoryIsFootprint, "own process: cpu \(me?.cpu ?? -1)%, footprint \(me?.memory ?? -1) B, energy \(me?.energyW ?? -1) W")
 let foreign = procs.filter { !$0.isOwn && $0.memory > 0 }
 check(foreign.count > 5, "foreign processes get RSS/CPU via ps (\(foreign.count))")
+let again = sampler.sample(includeForeign: false).first { $0.pid == getpid() }
+check((again?.cpu ?? -1) >= 0 && again?.cpu == me?.cpu, "a sample right after another repeats the last CPU instead of unknown (\(again?.cpu ?? -1)%)")
 let ws = procs.first { $0.name == "WindowServer" }
 hardwareCheck(ws?.isSystem == true, "WindowServer classified system: \(ws?.systemReasons ?? [])")
 check(procs.first { $0.pid == getpid() }?.isSystem == false, "this test binary is not system")
 check(ProcList.arguments(pid: getpid())?.first?.hasSuffix("maclens-selftest") == true, "own arguments readable")
 check(ProcList.arguments(pid: 1) == nil, "root process arguments not readable (expected without root)")
 print("    x=\(x > 0)")
+
+// MARK: - Application groups (#34)
+section("Application groups")
+check(AppGrouping.bundlePath("/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)") == "/Applications/Google Chrome.app", "outermost .app wins for nested helper bundles")
+check(AppGrouping.bundlePath("/usr/bin/python3") == nil && AppGrouping.bundlePath("/opt/x/Foo.application/bin/foo") == nil, "no bundle outside .app folders")
+do {
+    let t0 = Date(timeIntervalSince1970: 1_000_000)
+    func mk(_ pid: Int32, _ ppid: Int32, _ name: String, _ path: String, at dt: Double = 0, user: String = "me", cpu: Double = 1, mem: Int64 = 100, own: Bool = true) -> ProcSample {
+        var p = ProcSample(pid: pid, ppid: ppid, uid: 501, user: user, name: name, path: path, startDate: t0.addingTimeInterval(dt), isOwn: own)
+        p.cpu = cpu; p.memory = mem; p.memoryIsFootprint = own; p.energyW = cpu / 10
+        return p
+    }
+    let chrome = "/Applications/Google Chrome.app"
+    let sample = [
+        mk(1, 0, "launchd", "/sbin/launchd", user: "root"),
+        mk(100, 1, "Google Chrome", chrome + "/Contents/MacOS/Google Chrome", at: 1, cpu: 10, mem: 1000),
+        mk(101, 100, "Google Chrome Helper", chrome + "/Contents/Frameworks/X.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper", at: 2, cpu: 5, mem: 500),
+        mk(102, 101, "chrome_crashpad_handler", "/private/var/folders/x/chrome_crashpad_handler", at: 3, cpu: 1, mem: 50),
+        mk(200, 1, "Terminal", "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal", at: 1),
+        mk(201, 200, "login", "/usr/bin/login", at: 2, user: "root", own: false),
+        mk(202, 201, "zsh", "/bin/zsh", at: 3),
+        mk(203, 202, "claude", "/Users/me/.local/bin/claude", at: 4, cpu: 20, mem: 300),
+        mk(204, 203, "node", "/opt/homebrew/bin/node", at: 5, cpu: 3, mem: 80),
+        mk(210, 202, "claude", "/Users/me/.local/bin/claude", at: 6, cpu: 2, mem: 200),
+        mk(300, 1, "mdworker_shared", "/System/Library/Frameworks/CoreServices.framework/mdworker_shared", at: 1),
+        mk(301, 1, "mdworker_shared", "/System/Library/Frameworks/CoreServices.framework/mdworker_shared", at: 1),
+        mk(400, 999, "orphan", "/usr/bin/orphan", at: 1),
+        mk(500, 204, "reused", "/usr/bin/reused", at: -5), // older than its "parent": PID was reused
+        mk(600, 1, "Google Chrome", "", at: 1, cpu: 4, mem: 10), // executable replaced by an update: no path
+        mk(601, 600, "Google Chrome Helper", "", at: 2, cpu: 1, mem: 10),
+    ]
+    let groups = AppGrouping.group(sample)
+    func g(_ id: String) -> AppGroup? { groups.first { $0.id == id } }
+    let c = g(chrome)
+    check(c?.name == "Google Chrome" && Set(c?.processes.map(\.pid) ?? []) == [100, 101, 102, 600, 601] && g("name:Google Chrome") == nil, "Chrome, its helper bundle, an unbundled child and path-less processes of the same name form one group: \(c?.processes.map(\.pid) ?? [])")
+    check(c?.cpu == 21 && c?.memory == 1570 && c?.memoryEstimated == false, "group totals are sums: cpu \(c?.cpu ?? -1), memory \(c?.memory ?? -1)")
+    let cl = g("name:claude")
+    check(Set(cl?.processes.map(\.pid) ?? []) == [203, 204, 210] && cl?.cpu == 25, "CLI processes stop at the shell and group by the top command with their children")
+    check(Set(g("/System/Applications/Utilities/Terminal.app")?.processes.map(\.pid) ?? []) == [200, 201], "login joins Terminal; the shell does not")
+    check(g("name:zsh")?.processes.count == 1 && g("name:mdworker_shared")?.processes.count == 2, "unbundled daemons group by name")
+    check(g("name:orphan") != nil && g("name:reused")?.processes.count == 1, "missing parent and reused PID fall back to the process's own name")
+    check(g(chrome)?.user == "me" && g("/System/Applications/Utilities/Terminal.app")?.user == "multiple"
+          && g("/System/Applications/Utilities/Terminal.app")?.memoryEstimated == true, "mixed owners show as multiple and mark memory estimated")
+    check(groups.reduce(0) { $0 + $1.processes.count } == sample.count, "every process lands in exactly one group")
+    let live = AppGrouping.group(procs)
+    check(live.reduce(0) { $0 + $1.processes.count } == procs.count && live.count < procs.count,
+          "live: \(procs.count) processes → \(live.count) groups")
+}
 
 // MARK: - Kill
 section("Kill")

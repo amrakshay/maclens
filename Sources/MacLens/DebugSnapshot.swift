@@ -26,6 +26,13 @@ import MacLensCore
                 if tab == .heat { renderOffscreen(HeatContent(), model: model, to: dir.appendingPathComponent("heat-content.png")) }
                 if tab == .dashboard { renderOffscreen(DashboardContent(), model: model, to: dir.appendingPathComponent("dashboard-content.png")) }
             }
+            // Processes grouped by application (#34).
+            let grouped = model.settings.groupProcessesByApp
+            model.settings.groupProcessesByApp = true
+            model.tab = .processes
+            try? await Task.sleep(for: .seconds(3))
+            capture(dir.appendingPathComponent("processes-apps.png"))
+            model.settings.groupProcessesByApp = grouped
             // What machines without VoiceMode see on the Additional Services tab.
             renderOffscreen(NotInstalledWarning().padding().frame(width: 760), model: model, to: dir.appendingPathComponent("services-not-installed.png"))
             // Water reminders (#28): the on-screen alert (Settings → Water reminders is in settings.png only when scrolled into view).

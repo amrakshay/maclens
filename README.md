@@ -125,6 +125,13 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
   - Critical processes (launchd, WindowServer, loginwindow, kernel_task, …) are refused.
   - Other users' processes are refused; macOS itself forbids signalling them without root.
   - Your own macOS components (Dock, Finder, …) need a second, explicit warning.
+- **Processes / Applications:** the Applications view shows one row per app, with its process count and the total CPU, memory and energy of all its processes. Expand a row to see each process.
+  - A process belongs to the outermost `.app` bundle its executable lives in, so Chrome's helpers and renderers count as Google Chrome.
+  - A process outside any bundle joins its nearest parent that is in one, for example Chrome's crash handler.
+  - The walk up the tree stops at a shell or launchd. A command run in a terminal therefore counts as that command (for example `claude`, together with the `node` processes it starts), not as Terminal. Same-named commands and daemons are grouped together.
+  - Services that launchd starts for an app, such as Safari's WebKit processes, have launchd as their parent and appear as their own rows. macOS only links them to the app through a private API.
+  - Memory totals show `~` when they include other users' processes, whose resident size is counted because their footprint needs root.
+  - Selecting an app shows its totals and heaviest processes. **Quit App** asks a running app to quit, the same as ⌘Q, so it can save or ask first. There is no force-kill for a whole app; to force-kill, select a single process.
 
 **Heat & Battery**
 - Shows system processes by default, because WindowServer and other daemons are often the real heat source.

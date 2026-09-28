@@ -109,6 +109,14 @@ public struct ProcSample: Identifiable, Sendable, Equatable {
     public var isSystem: Bool { !systemReasons.isEmpty }
 }
 
+extension ProcSample {
+    /// For building samples outside the sampler (self-test).
+    public init(pid: Int32, ppid: Int32, uid: uid_t, user: String, name: String, path: String, startDate: Date, isOwn: Bool) {
+        self.init(pid: pid, ppid: ppid, uid: uid, user: user, name: name, path: path, startDate: startDate,
+                  key: ProcKey(pid: pid, start: Int64(startDate.timeIntervalSince1970 * 1e6)), isOwn: isOwn)
+    }
+}
+
 /// Keeps cumulative CPU/energy counters per process, spaced ~10 s apart, for 5-minute averages.
 public final class EnergyHistory {
     struct Point { let t: Double; let cpuSec: Double; let energyJ: Double? }
@@ -149,7 +157,7 @@ public final class ProcessSampler {
     public private(set) var wattsPerCore: Double = 1.0
     public private(set) var lastForeignRefresh: Double = 0
 
-    private struct OwnPrev { let t: Double; let cpuNs: Double; let energyNj: Double; let wakeups: Double }
+    private struct OwnPrev { let t: Double; let cpuNs: Double; let energyNj: Double; let wakeups: Double; let rates: (Double, Double, Double) }
     private struct Foreign { let t: Double; let cpuSec: Double; let rss: Int64; let cpuPct: Double }
     private var prevOwn: [ProcKey: OwnPrev] = [:]
     private var foreign: [ProcKey: Foreign] = [:]
@@ -184,15 +192,21 @@ public final class ProcessSampler {
                 let wk = Double(ri.ri_interrupt_wkups &+ ri.ri_pkg_idle_wkups)
                 s.memory = Int64(ri.ri_phys_footprint)
                 s.memoryIsFootprint = true
-                if let p = prevOwn[key], now - p.t > 0.2 {
-                    let dt = now - p.t
-                    s.cpu = max(0, (cpuNs - p.cpuNs) / 1e9 / dt * 100)
-                    s.energyW = max(0, (energy - p.energyNj) / 1e9 / dt)
-                    s.wakeupsPerSec = max(0, (wk - p.wakeups) / dt)
-                    ownCores += s.cpu / 100
-                    ownWatts += s.energyW
+                if let p = prevOwn[key], now - p.t <= 0.2 {
+                    // Two ticks milliseconds apart (e.g. a tab switch right after a scheduled tick): too short to
+                    // measure, so repeat the last rates and keep the older baseline instead of showing "—".
+                    (s.cpu, s.energyW, s.wakeupsPerSec) = p.rates
+                } else {
+                    if let p = prevOwn[key] {
+                        let dt = now - p.t
+                        s.cpu = max(0, (cpuNs - p.cpuNs) / 1e9 / dt * 100)
+                        s.energyW = max(0, (energy - p.energyNj) / 1e9 / dt)
+                        s.wakeupsPerSec = max(0, (wk - p.wakeups) / dt)
+                        ownCores += s.cpu / 100
+                        ownWatts += s.energyW
+                    }
+                    prevOwn[key] = OwnPrev(t: now, cpuNs: cpuNs, energyNj: energy, wakeups: wk, rates: (s.cpu, s.energyW, s.wakeupsPerSec))
                 }
-                prevOwn[key] = OwnPrev(t: now, cpuNs: cpuNs, energyNj: energy, wakeups: wk)
                 history.record(key, t: now, cpuSec: cpuNs / 1e9, energyJ: energy / 1e9)
             } else if let f = foreign[key] {
                 s.memory = f.rss
