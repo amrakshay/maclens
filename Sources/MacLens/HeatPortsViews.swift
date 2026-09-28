@@ -178,19 +178,20 @@ struct PortsView: View {
     @EnvironmentObject var settings: Settings
     @EnvironmentObject var model: AppModel
     @State private var search = ""
-    @State private var sortOrder = [KeyPathComparator(\PortRow.port)]
+    @State private var sortOrder = [KeyPathComparator(\PositionRow<PortRow>.item.port)]
     @State private var selection: PortRow.ID?
     @State private var freePort = ""
 
-    var rows: [PortRow] {
-        ports.rows.filter { r in
+    var rows: [PositionRow<PortRow>] {
+        PositionRow.sorted(ports.rows.filter { r in
             (!settings.hideSystemPorts || !r.isSystem) &&
             (search.isEmpty || String(r.port).contains(search) || r.processName.localizedCaseInsensitiveContains(search) ||
              String(r.pid) == search || r.path.localizedCaseInsensitiveContains(search) || r.user.localizedCaseInsensitiveContains(search))
-        }.sorted(using: sortOrder)
+        }, by: sortOrder)
     }
 
     var body: some View {
+        let rows = self.rows
         VStack(spacing: 0) {
             FilterBar(hideSystem: $settings.hideSystemPorts, hiddenCount: ports.rows.filter(\.isSystem).count, noun: "ports") {
                 Button { model.refreshPortsNow() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
@@ -198,16 +199,16 @@ struct PortsView: View {
             }
             FreePortBar(freePort: $freePort)
             Divider()
-            Table(rows, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn("Port", value: \.port) { Text(String($0.port)).monospacedDigit() }.width(60)
-                TableColumn("Proto", value: \.proto) { r in Text("\(r.proto) \(r.entry.family)") }.width(90)
-                TableColumn("Address", value: \.entry.address) { Text($0.entry.address == "*" ? "all interfaces" : $0.entry.address) }.width(min: 90, ideal: 120)
-                TableColumn("PID", value: \.pid) { Text(String($0.pid)).monospacedDigit() }.width(60)
-                TableColumn("Process", value: \.processName) { r in
-                    HStack(spacing: 4) { Text(r.processName); if r.isSystem { Image(systemName: "gearshape.fill").foregroundStyle(.tertiary) } }
+            Table(rows, selection: rows.selection($selection), sortOrder: $sortOrder) {
+                TableColumn("Port", value: \.item.port) { Text(String($0.item.port)).monospacedDigit() }.width(60)
+                TableColumn("Proto", value: \.item.proto) { r in Text("\(r.item.proto) \(r.item.entry.family)") }.width(90)
+                TableColumn("Address", value: \.item.entry.address) { Text($0.item.entry.address == "*" ? "all interfaces" : $0.item.entry.address) }.width(min: 90, ideal: 120)
+                TableColumn("PID", value: \.item.pid) { Text(String($0.item.pid)).monospacedDigit() }.width(60)
+                TableColumn("Process", value: \.item.processName) { r in
+                    HStack(spacing: 4) { Text(r.item.processName); if r.item.isSystem { Image(systemName: "gearshape.fill").foregroundStyle(.tertiary) } }
                 }.width(min: 120, ideal: 160)
-                TableColumn("User", value: \.user) { Text($0.user) }.width(80)
-                TableColumn("Path", value: \.path) { Text($0.path).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle).help($0.path) }
+                TableColumn("User", value: \.item.user) { Text($0.item.user) }.width(80)
+                TableColumn("Path", value: \.item.path) { Text($0.item.path).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle).help($0.item.path) }
             }
             StatusBar(left: "\(rows.count) listening sockets shown" + (ports.updated.map { " · updated \($0.formatted(date: .omitted, time: .standard))" } ?? ""),
                       right: "TCP in LISTEN state and bound UDP sockets, for all users (no root needed)")

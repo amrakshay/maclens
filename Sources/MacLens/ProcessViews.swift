@@ -18,41 +18,44 @@ struct ProcessesView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var monitor: MonitorStore
     @EnvironmentObject var settings: Settings
-    @State private var sortOrder = [KeyPathComparator(\ProcSample.cpu, order: .reverse)]
+    @State private var sortOrder = [KeyPathComparator(\PositionRow<ProcSample>.item.cpu, order: .reverse)]
     @State private var selection: ProcSample.ID?
     @State private var search = ""
 
-    var rows: [ProcSample] {
-        monitor.processes.filter { p in
+    var rows: [PositionRow<ProcSample>] {
+        PositionRow.sorted(monitor.processes.filter { p in
             (!settings.hideSystemProcesses || !p.isSystem) &&
             (search.isEmpty || p.name.localizedCaseInsensitiveContains(search) || String(p.pid) == search || p.path.localizedCaseInsensitiveContains(search))
-        }.sorted(using: sortOrder)
+        }, by: sortOrder)
     }
 
     var body: some View {
         let rows = self.rows
         VStack(spacing: 0) {
         FilterBar(hideSystem: $settings.hideSystemProcesses, hiddenCount: monitor.processes.filter(\.isSystem).count, noun: "processes", showRefresh: true)
-        Table(rows, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.name) { p in
+        Table(rows, selection: rows.selection($selection), sortOrder: $sortOrder) {
+            TableColumn("Name", value: \.item.name) { r in
+                let p = r.item
                 HStack(spacing: 4) {
                     Text(p.name).lineLimit(1)
                     if p.isSystem { Image(systemName: "gearshape.fill").foregroundStyle(.tertiary).help("System: " + p.systemReasons.joined(separator: "; ")) }
                 }
             }.width(min: 160, ideal: 220)
-            TableColumn("PID", value: \.pid) { Text(String($0.pid)).monospacedDigit() }.width(60)
-            TableColumn("User", value: \.user) { Text($0.user) }.width(min: 60, ideal: 90)
-            TableColumn("CPU %", value: \.cpu) { Text(Fmt.pct($0.cpu)).monospacedDigit() }.width(60)
-            TableColumn("Memory", value: \.memory) { p in
+            TableColumn("PID", value: \.item.pid) { Text(String($0.item.pid)).monospacedDigit() }.width(60)
+            TableColumn("User", value: \.item.user) { Text($0.item.user) }.width(min: 60, ideal: 90)
+            TableColumn("CPU %", value: \.item.cpu) { Text(Fmt.pct($0.item.cpu)).monospacedDigit() }.width(60)
+            TableColumn("Memory", value: \.item.memory) { r in
+                let p = r.item
                 Text(Fmt.bytes(p.memory)).monospacedDigit()
                     .help(p.memoryIsFootprint ? "Physical footprint (what Activity Monitor shows)" : "Resident size — footprint of other users' processes needs root")
             }.width(80)
-            TableColumn("Energy", value: \.energyW) { p in
+            TableColumn("Energy", value: \.item.energyW) { r in
+                let p = r.item
                 Text(Fmt.watts(p.energyW, estimated: p.energyEstimated)).monospacedDigit()
                     .help(p.energyEstimated ? "Estimated from CPU time (other users' energy counters need root)" : "Measured by the kernel's per-process CPU energy counter (rusage)")
             }.width(80)
-            TableColumn("Energy (5 min)", value: \.avgEnergyW) { p in
-                Text(Fmt.watts(p.avgEnergyW, estimated: !p.isOwn)).monospacedDigit()
+            TableColumn("Energy (5 min)", value: \.item.avgEnergyW) { r in
+                Text(Fmt.watts(r.item.avgEnergyW, estimated: !r.item.isOwn)).monospacedDigit()
             }.width(95)
         }
         StatusBar(left: "\(rows.count) processes shown · updated \(monitor.updated.formatted(date: .omitted, time: .standard))",
