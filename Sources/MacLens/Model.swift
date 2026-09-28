@@ -37,6 +37,8 @@ enum Tab: String, CaseIterable, Identifiable {
     @Published var refreshInterval: Double { didSet { d.set(refreshInterval, forKey: "refreshInterval") } }
     @Published var backgroundInterval: Double { didSet { d.set(backgroundInterval, forKey: "backgroundInterval") } }
     @Published var hideSystemProcesses: Bool { didSet { d.set(hideSystemProcesses, forKey: "hideSystemProcesses") } }
+    /// Processes tab shows one row per application instead of per process (#34).
+    @Published var groupProcessesByApp: Bool { didSet { d.set(groupProcessesByApp, forKey: "groupProcessesByApp") } }
     @Published var hideSystemPorts: Bool { didSet { d.set(hideSystemPorts, forKey: "hideSystemPorts") } }
     /// Heat keeps system processes visible by default: WindowServer & co. are often the actual heat source.
     @Published var hideSystemHeat: Bool { didSet { d.set(hideSystemHeat, forKey: "hideSystemHeat") } }
@@ -50,12 +52,13 @@ enum Tab: String, CaseIterable, Identifiable {
 
     init() {
         d.register(defaults: ["refreshInterval": 5.0, "backgroundInterval": 10.0,
-                              "hideSystemProcesses": true, "hideSystemPorts": true, "hideSystemHeat": false,
+                              "hideSystemProcesses": true, "groupProcessesByApp": false, "hideSystemPorts": true, "hideSystemHeat": false,
                               "notifyThermal": true, "notifyRunaway": true, "runawayCPU": 90.0, "runawayMinutes": 5.0,
                               "notifyBattery": true, "batteryLow": 20, "batteryHigh": 80])
         refreshInterval = d.double(forKey: "refreshInterval")
         backgroundInterval = d.double(forKey: "backgroundInterval")
         hideSystemProcesses = d.bool(forKey: "hideSystemProcesses")
+        groupProcessesByApp = d.bool(forKey: "groupProcessesByApp")
         hideSystemPorts = d.bool(forKey: "hideSystemPorts")
         hideSystemHeat = d.bool(forKey: "hideSystemHeat")
         notifyThermal = d.bool(forKey: "notifyThermal")
