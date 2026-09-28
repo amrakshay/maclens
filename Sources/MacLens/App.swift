@@ -45,6 +45,7 @@ struct MacLensApp: App {
                 .environmentObject(model.summary)
                 .environmentObject(model.sleep)
                 .environmentObject(model.updates)
+                .environmentObject(model.water)
         } label: {
             MenuBarLabel(model: model, summary: model.summary, sleep: model.sleep)
         }
@@ -61,6 +62,7 @@ struct MacLensApp: App {
                 .environmentObject(model.history)
                 .environmentObject(model.sleep)
                 .environmentObject(model.updates)
+                .environmentObject(model.water)
                 .frame(minWidth: 900, minHeight: 560)
         }
         .defaultSize(width: 1180, height: 740)
@@ -205,6 +207,7 @@ struct MenuBarView: View {
                 if sleep.isActive { Button("Allow sleep") { sleep.allowSleep() } }
                 else { Button("Prevent sleep") { sleep.preventSleep() } }
             }
+            WaterMenuSection()
             Divider()
             HStack {
                 Button("Open MacLens") {

@@ -179,6 +179,13 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
   - Each alert fires once when the level is reached. It re-arms only after the battery moves 2% back past the level.
   - A level already past its threshold when MacLens starts doesn't alert.
   - **Send test alert** checks that notifications are allowed.
+- **Water reminders** (opt-in, off by default):
+  - A reminder every **30 min** (15 min to 2 h), only during work hours: **10:00–19:00 IST, Mon–Fri** by default. Hours, workdays and time zone are configurable. The time zone is stored with the hours, so they don't move if the Mac's time zone changes.
+  - Shown as a **notification** or an **on-screen alert**. The on-screen alert is a floating panel above all windows, on every Space and over full-screen apps, with **Done**, **Snooze 10 min** and **Pause…**. It doesn't take keyboard focus.
+  - **Skipped while the screen is shared, recorded or mirrored.** The skipped reminder is shown once, when sharing ends. Detection is confirmed for Zoom; other apps are being checked in #29.
+  - **Pause** for 30 min, 1 h, 2 h or until the end of the shift, from the menu bar menu or the alert. **Resume now** ends it early. A reminder that came due during the pause is shown once.
+  - Skipped (not deferred) while the Mac is locked or idle longer than the interval. Reminders never pile up: at most one is pending or on screen.
+  - While it's off, no timer runs. While it's on, one timer wakes once a minute for a few cheap reads.
 - The exact "system process" and "protected path" definitions.
 
 ### Detection rules (marker files, not folder names)

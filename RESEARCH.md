@@ -179,6 +179,16 @@ The app shows **Last activity = max(project file mtime, git activity, artifact m
   - Notarization isn't needed for your own machine.
 - **Optional privileged helper:** would give exact CPU/memory/energy for foreign processes (and `powermetrics`). Not needed for v1; can be deferred without affecting anything else.
 
+### Screen sharing, idle and lock (water reminders, #28)
+- **Screen being shared or captured:** `SLSIsScreenWatcherPresent()` in the private SkyLight framework, resolved with `dlsym`. No permission is needed. On macOS 26.6.1 it read `no` → `YES` while sharing in Zoom → `no` when sharing stopped, and stayed `no` in a Zoom meeting without sharing. It's private, so MacLens treats a missing symbol as "unknown" and never as "sharing". Slack, Teams, Meet, recording and mirroring are being checked in #29.
+- **What didn't work:**
+  - `UIScreen.isCaptured` exists only for iOS/Catalyst.
+  - The Focus/DND database (`~/Library/DoNotDisturb/DB`) needs Full Disk Access.
+  - `CGWindowListCopyWindowInfo` gives owner names without Screen Recording permission, but not window titles, so it can't tell sharing from "Zoom is open".
+- **macOS already mutes notifications** while mirroring or sharing (System Settings → Notifications, off by default), so the check matters most for the on-screen alert.
+- **Calls:** `kAudioDevicePropertyDeviceIsRunningSomewhere` (mic) and `kCMIODevicePropertyDeviceIsRunningSomewhere` (camera) are readable without permission. They're not used, because "in a call" isn't "sharing".
+- **Idle:** `HIDIdleTime` on the `IOHIDSystem` registry entry (nanoseconds), no permission. **Locked:** `CGSSessionScreenIsLocked` in `CGSessionCopyCurrentDictionary()`; the key is present only while locked.
+
 ## 4. Proposed extra features (ranked, for your approval)
 
 1. **Menu bar indicator**: thermal state, current watts, and the top offender at a glance. This is the whole point of a "lightweight" monitor.

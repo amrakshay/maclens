@@ -144,6 +144,7 @@ struct PortRow: Identifiable, Hashable {
     let history = HistoryStore()
     let sleep = SleepStore()
     let updates = UpdateStore()
+    let water = WaterStore()
     @Published private(set) var windowVisible = false
     private let engine = Engine()
     private var observers: [NSObjectProtocol] = []
@@ -163,6 +164,8 @@ struct PortRow: Identifiable, Hashable {
         if settings.notifyThermal || settings.notifyRunaway || settings.notifyBattery || updates.autoCheck { notifier.requestAuthorization() }
         updates.notify = { [weak self] r in self?.notifier.postUpdate(r, current: self?.updates.currentVersionString ?? "") }
         updates.start()
+        water.notify = { [weak self] in self?.notifier.postWater() }
+        if water.enabled && water.style == .notification { notifier.requestAuthorization() }
     }
 
     var shouldOpenWindowAtLaunch: Bool {
@@ -337,6 +340,10 @@ struct HistoryPoint: Identifiable {
     /// One notification per new version; clicking it opens the update window (see AppDelegate).
     func postUpdate(_ r: ReleaseInfo, current: String) {
         post("MacLens \(r.version.description) is available", "You have \(current). Click to see what's new and update.", userInfo: ["kind": "update"])
+    }
+
+    func postWater() {
+        post("Time to drink some water", "Take a sip and stretch for a moment.")
     }
 
     func sendTest() {

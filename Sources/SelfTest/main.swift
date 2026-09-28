@@ -54,6 +54,17 @@ if let i = args.firstIndex(of: "--artifacts"), i + 1 < args.count {
     exit(0)
 }
 
+if let i = args.firstIndex(of: "--screen-watcher") {
+    // Read-only: prints whether the screen is being shared/recorded/mirrored, once a second (for #29).
+    let n = i + 1 < args.count ? Int(args[i + 1]) ?? 30 : 30
+    for t in 0..<n {
+        let v = PresenceSignals.screenIsShared()
+        print("t=\(t)s watcher=\(v.map { $0 ? "YES" : "no" } ?? "unavailable")"); fflush(stdout)
+        Thread.sleep(forTimeInterval: 1)
+    }
+    exit(0)
+}
+
 let fm = FileManager.default
 let base = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent(".selftest/run-\(UUID().uuidString.prefix(8))")
 try! fm.createDirectory(at: base, withIntermediateDirectories: true)
@@ -393,6 +404,47 @@ do {
     } else {
         print("  – skipped live release check: \(liveErr?.localizedDescription ?? "unknown")")
     }
+}
+
+// MARK: - Water reminders
+section("Water reminders")
+do {
+    let ist = TimeZone(identifier: "Asia/Kolkata")!
+    var cal = Calendar(identifier: .gregorian); cal.timeZone = ist
+    // 2026-09-28 is a Monday.
+    func at(_ day: Int, _ h: Int, _ m: Int) -> Date { cal.date(from: DateComponents(year: 2026, month: 9, day: day, hour: h, minute: m))! }
+    let sched = WorkSchedule()
+    check(!sched.contains(at(28, 9, 59)) && sched.contains(at(28, 10, 0)) && sched.contains(at(28, 18, 59)) && !sched.contains(at(28, 19, 0)),
+          "IST shift is 10:00–19:00 (end exclusive)")
+    check(!sched.contains(at(26, 12, 0)) && !sched.contains(at(27, 12, 0)) && sched.contains(at(25, 12, 0)), "Mon–Fri by default: Sat and Sun off, Fri on")
+    var utc = WorkSchedule(); utc.timeZone = TimeZone(identifier: "UTC")!
+    check(!utc.contains(at(28, 10, 0)) && utc.contains(at(28, 15, 30)), "shift follows its own time zone (10:00 IST = 04:30 UTC)")
+    check(sched.shiftEnd(containing: at(28, 15, 0)) == at(28, 19, 0) && sched.shiftEnd(containing: at(28, 20, 0)) == nil, "end of shift")
+
+    var e = WaterReminderEngine()
+    check(e.tick(now: at(28, 10, 0), sharing: false, away: false, alertVisible: false) == .wait(.notDue), "first tick only starts the interval")
+    check(e.tick(now: at(28, 10, 29), sharing: false, away: false, alertVisible: false) == .wait(.notDue), "not due before 30 min")
+    check(e.tick(now: at(28, 10, 30), sharing: true, away: false, alertVisible: false) == .wait(.sharing), "due while sharing → deferred")
+    check(e.tick(now: at(28, 11, 0), sharing: true, away: false, alertVisible: false) == .wait(.sharing) && e.owed, "still one owed after another interval (no pile-up)")
+    check(e.tick(now: at(28, 11, 5), sharing: false, away: false, alertVisible: false) == .show, "shown once sharing ends")
+    check(e.tick(now: at(28, 11, 6), sharing: false, away: false, alertVisible: false) == .wait(.notDue) && e.nextDue == at(28, 11, 35), "then one interval later, not immediately again")
+    check(e.tick(now: at(28, 11, 35), sharing: false, away: true, alertVisible: false) == .wait(.away), "away → skipped")
+    check(e.tick(now: at(28, 11, 36), sharing: false, away: false, alertVisible: false) == .wait(.notDue), "skipped while away is not owed")
+    check(e.tick(now: at(28, 12, 5), sharing: false, away: false, alertVisible: true) == .wait(.alertVisible), "no second alert while one is on screen")
+    e.pausedUntil = at(28, 13, 0)
+    check(e.tick(now: at(28, 12, 40), sharing: false, away: false, alertVisible: false) == .wait(.paused) && e.owed, "due while paused → owed")
+    check(e.tick(now: at(28, 13, 0), sharing: false, away: false, alertVisible: false) == .show && e.pausedUntil == nil, "shown once the pause ends")
+    e.pausedUntil = at(28, 16, 0)
+    _ = e.tick(now: at(28, 13, 40), sharing: false, away: false, alertVisible: false)
+    e.pausedUntil = nil // Resume now
+    check(e.tick(now: at(28, 13, 41), sharing: false, away: false, alertVisible: false) == .show, "Resume now shows the owed reminder")
+    e.snooze(10 * 60, now: at(28, 13, 41))
+    check(e.nextDue == at(28, 13, 51), "snooze sets the next reminder")
+    check(e.tick(now: at(28, 18, 50), sharing: true, away: false, alertVisible: false) == .wait(.sharing), "owed near end of shift")
+    check(e.tick(now: at(28, 19, 0), sharing: false, away: false, alertVisible: false) == .wait(.offHours) && !e.owed, "owed reminder dropped at end of shift")
+    check(e.tick(now: at(29, 10, 0), sharing: false, away: false, alertVisible: false) == .wait(.notDue), "next day starts fresh")
+    check(PresenceSignals.idleSeconds() != nil, "HID idle time readable without permission (\(PresenceSignals.idleSeconds().map { String(format: "%.0f s", $0) } ?? "n/a"))")
+    hardwareCheck(PresenceSignals.screenIsShared() != nil, "screen-watcher check available on this macOS")
 }
 
 // MARK: - Deletion guard
