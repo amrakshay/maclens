@@ -168,6 +168,11 @@ struct WaterAlertView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 16, height: 16)
+                Text("MacLens").font(.caption.weight(.semibold))
+                Text("· Water reminder").font(.caption).foregroundStyle(.secondary)
+            }
             HStack(spacing: 12) {
                 Image(systemName: "drop.fill").font(.system(size: 30)).foregroundStyle(.blue)
                 VStack(alignment: .leading, spacing: 2) {
@@ -182,8 +187,11 @@ struct WaterAlertView: View {
                 Button("Done") { water.done() }.keyboardShortcut(.defaultAction)
             }
         }
-        .padding(18)
+        .padding(.horizontal, 18)
+        .padding(.top, 10) // the header sits in the (hidden) title bar area
+        .padding(.bottom, 18)
         .frame(width: 440)
+        .ignoresSafeArea(edges: .top)
     }
 }
 
@@ -223,6 +231,8 @@ struct WaterMenuSection: View {
 
 struct WaterSettingsSection: View {
     @EnvironmentObject var water: WaterStore
+    @EnvironmentObject var model: AppModel
+    @State private var testNote: String?
     private let days = [(2, "Mon"), (3, "Tue"), (4, "Wed"), (5, "Thu"), (6, "Fri"), (7, "Sat"), (1, "Sun")]
 
     var body: some View {
@@ -256,15 +266,27 @@ struct WaterSettingsSection: View {
                 }
                 Toggle("Skip while the screen is shared, recorded or mirrored", isOn: $water.skipWhileSharing)
                 HStack {
-                    Button("Show a test reminder") { water.showTest() }
+                    Button("Show a test reminder") { test() }
                     Text(water.statusLine).foregroundStyle(.secondary)
+                }
+                if let testNote {
+                    Label(testNote, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .disabled(!water.enabled)
             Text("Off by default. Reminders appear only during work hours on workdays. One skipped while you share your screen or pause is shown once, when that ends; while the Mac is locked or idle longer than the interval, it's skipped. Reminders never pile up. The on-screen alert stays above all windows until you click Done, Snooze or Pause. Screen-sharing detection is confirmed for Zoom; if another app isn't detected, use Pause from the menu bar.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        .onChange(of: water.style) { testNote = nil }
         .onChange(of: water.startMinutes) { if water.endMinutes <= water.startMinutes { water.endMinutes = min(24 * 60 - 1, water.startMinutes + 60) } }
+    }
+
+    private func test() {
+        testNote = nil
+        water.showTest()
+        guard water.style == .notification else { return }
+        Task { testNote = await model.notifier.deliveryProblem() }
     }
 
     private var timeZones: [String] {

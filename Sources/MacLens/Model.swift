@@ -298,7 +298,7 @@ struct HistoryPoint: Identifiable {
 @MainActor final class Notifier {
     private var lastThermal: ProcessInfo.ThermalState = .nominal
     private var notified: [ProcKey: Date] = [:]
-    private var available: Bool { Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil }
+    var available: Bool { Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil }
 
     func requestAuthorization() {
         guard available else { return }
@@ -344,6 +344,19 @@ struct HistoryPoint: Identifiable {
 
     func postWater() {
         post("Time to drink some water", "Take a sip and stretch for a moment.")
+    }
+
+    /// Why a notification won't appear, if we can tell. nil = it should show (Focus / Do Not Disturb can still hide it).
+    func deliveryProblem() async -> String? {
+        guard available else {
+            return "This development build (swift run) can't post notifications; it writes them to its log. They work in the installed MacLens.app."
+        }
+        let s = await UNUserNotificationCenter.current().notificationSettings()
+        switch s.authorizationStatus {
+        case .denied: return "Notifications are turned off for MacLens. Allow them in System Settings → Notifications → MacLens."
+        case .notDetermined: requestAuthorization(); return "macOS is asking whether MacLens may send notifications. Allow it, then try again."
+        default: return s.alertSetting == .disabled ? "MacLens notifications are set to not show banners. Change the style in System Settings → Notifications → MacLens." : nil
+        }
     }
 
     func sendTest() {
