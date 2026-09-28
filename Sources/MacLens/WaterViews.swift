@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 import MacLensCore
 
 /// Opt-in water reminders (#28). Off by default; while off, no timer exists.
@@ -96,6 +97,26 @@ import MacLensCore
 
     // MARK: Actions
 
+    nonisolated static let categoryID = "water"
+    /// Actions on the notification (shown under Options when hovering the banner). Clicking or dismissing it counts as Done.
+    nonisolated static var notificationCategory: UNNotificationCategory {
+        UNNotificationCategory(identifier: categoryID, actions: [
+            UNNotificationAction(identifier: "done", title: "Done"),
+            UNNotificationAction(identifier: "snooze10", title: "Snooze 10 min"),
+            UNNotificationAction(identifier: "pause60", title: "Pause 1 hour"),
+            UNNotificationAction(identifier: "pauseShift", title: "Pause until end of shift"),
+        ], intentIdentifiers: [], options: [.customDismissAction])
+    }
+
+    func handleNotificationAction(_ id: String) {
+        switch id {
+        case "snooze10": snooze(minutes: 10)
+        case "pause60": pause(minutes: 60)
+        case "pauseShift": pauseUntilEndOfShift()
+        default: done() // "done", a click on the banner, or dismissing it
+        }
+    }
+
     func done() { engine.done(now: Date()); panel.close(); nextDue = engine.nextDue }
     func snooze(minutes: Int) { engine.snooze(TimeInterval(minutes * 60), now: Date()); panel.close(); nextDue = engine.nextDue }
 
@@ -147,19 +168,26 @@ import MacLensCore
     func close() { panel?.orderOut(nil) }
 
     private func makePanel() -> NSPanel {
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 420, height: 160),
-                        styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView], backing: .buffered, defer: false)
-        p.titleVisibility = .hidden
-        p.titlebarAppearsTransparent = true
+        // Borderless, so the panel is exactly as tall as its content (a hidden title bar still takes height).
+        let p = WaterPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 160),
+                        styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
         p.level = .statusBar
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         p.isMovableByWindowBackground = true
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
         p.becomesKeyOnlyIfNeeded = true
-        for b in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { p.standardWindowButton(b)?.isHidden = true } // Done/Snooze/Pause only
         return p
     }
+}
+
+/// Borderless panels refuse key status by default; allow it on click so the buttons and Pause menu respond to the first click.
+/// It's non-activating and `becomesKeyOnlyIfNeeded`, so showing it never moves keyboard focus.
+final class WaterPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }
 
 struct WaterAlertView: View {
@@ -187,11 +215,10 @@ struct WaterAlertView: View {
                 Button("Done") { water.done() }.keyboardShortcut(.defaultAction)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 10) // the header sits in the (hidden) title bar area
-        .padding(.bottom, 18)
+        .padding(16)
         .frame(width: 440)
-        .ignoresSafeArea(edges: .top)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.12)))
     }
 }
 

@@ -164,6 +164,10 @@ struct PortRow: Identifiable, Hashable {
         if settings.notifyThermal || settings.notifyRunaway || settings.notifyBattery || updates.autoCheck { notifier.requestAuthorization() }
         updates.notify = { [weak self] r in self?.notifier.postUpdate(r, current: self?.updates.currentVersionString ?? "") }
         updates.start()
+        observers.append(NotificationCenter.default.addObserver(forName: AppDelegate.waterAction, object: nil, queue: .main) { [weak self] n in
+            let action = n.object as? String ?? ""
+            MainActor.assumeIsolated { self?.water.handleNotificationAction(action) }
+        })
         water.notify = { [weak self] in self?.notifier.postWater() }
         if water.enabled && water.style == .notification { notifier.requestAuthorization() }
     }
@@ -343,7 +347,7 @@ struct HistoryPoint: Identifiable {
     }
 
     func postWater() {
-        post("Time to drink some water", "Take a sip and stretch for a moment.")
+        post("Time to drink some water", "Take a sip and stretch for a moment.", userInfo: ["kind": "water"], category: WaterStore.categoryID)
     }
 
     /// Why a notification won't appear, if we can tell. nil = it should show (Focus / Do Not Disturb can still hide it).
@@ -364,12 +368,13 @@ struct HistoryPoint: Identifiable {
         post("MacLens test alert", "Notifications are working. Battery, thermal and runaway-process alerts will look like this.")
     }
 
-    private func post(_ title: String, _ body: String, userInfo: [String: String] = [:]) {
+    private func post(_ title: String, _ body: String, userInfo: [String: String] = [:], category: String? = nil) {
         guard available else { NSLog("MacLens notification: \(title) — \(body)"); return }
         let c = UNMutableNotificationContent()
         c.title = title
         c.body = body
         c.userInfo = userInfo
+        if let category { c.categoryIdentifier = category }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
     }
 }

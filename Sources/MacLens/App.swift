@@ -8,14 +8,26 @@ import MacLensCore
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     static let reopen = Notification.Name("MacLensReopenMainWindow")
     static let showUpdate = Notification.Name("MacLensShowUpdateWindow")
+    /// A water-reminder notification action; `object` is the action identifier (see `WaterStore.notificationCategory`).
+    static let waterAction = Notification.Name("MacLensWaterAction")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if Bundle.main.bundleURL.pathExtension == "app" { UNUserNotificationCenter.current().delegate = self }
+        if Bundle.main.bundleURL.pathExtension == "app" {
+            UNUserNotificationCenter.current().delegate = self
+            UNUserNotificationCenter.current().setNotificationCategories([WaterStore.notificationCategory])
+        }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        let isUpdate = (response.notification.request.content.userInfo["kind"] as? String) == "update"
+        let kind = response.notification.request.content.userInfo["kind"] as? String
+        let isUpdate = kind == "update"
+        if kind == "water" {
+            let action = response.actionIdentifier
+            DispatchQueue.main.async { NotificationCenter.default.post(name: Self.waterAction, object: action) }
+            completionHandler()
+            return
+        }
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: isUpdate ? Self.showUpdate : Self.reopen, object: nil)
         }
