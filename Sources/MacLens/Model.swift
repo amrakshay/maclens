@@ -345,7 +345,8 @@ struct HistoryPoint: Identifiable {
     }
 
     private func post(_ title: String, _ body: String, userInfo: [String: String] = [:]) {
-        guard available else { NSLog("MacLens notification: \(title) — \(body)"); return }
+        // Pass the text as an argument: a "%" in it ("20% alert") must not be parsed as a format specifier (#26).
+        guard available else { NSLog("%@", "MacLens notification: \(title) — \(body)"); return }
         let c = UNMutableNotificationContent()
         c.title = title
         c.body = body
