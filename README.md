@@ -244,9 +244,9 @@ Measured on an M4 Pro running macOS 26.6.1 with `./scripts/measure.sh`, release 
 
 | State | CPU | Memory |
 |---|---|---|
-| **Background** (window closed, menu bar only, 5 s refresh; the normal idle state) | **0.31 %** | **24 MB** |
-| Window open on Dashboard (3 s refresh, 11 charts) | ~1.3 % steady (2.1 % over a 140 s run including launch) | 61–65 MB (182 MB peak during the first render) |
-| Window open on Processes (~740 rows) | ~2.2–2.7 % | ~90–120 MB |
+| **Background** (window closed, menu bar only, 10 s refresh; the normal idle state) | **1.5 %** over a 320 s run including launch (2.1 % at the old 5 s default, same day) | **72 MB** (198 MB peak during launch) |
+| Window open on Dashboard (5 s refresh, 11 charts) | 1.8 % over a 140 s run including launch (2.4 % at the old 3 s default) | 71 MB (199 MB peak during launch) |
+| Window open on Processes (~740 rows, 5 s refresh) | 2.5 % over a 140 s run including launch (4.0 % at the old 3 s default) | ~85–100 MB |
 | Window open on Heat & Battery | ~1.5 % | — |
 | Window open on Ports | ~0.9 % | — |
 | Window open on Settings | ~0.3 % | — |
@@ -255,6 +255,7 @@ Measured on an M4 Pro running macOS 26.6.1 with `./scripts/measure.sh`, release 
 | Developer-artifact scan of home (89 items, 37 GB) | 11.9 s | 13 MB peak (scan core) |
 
 Notes:
+- The Background, Dashboard and Processes rows were re-measured on 2026-09-28, one run each at the new 5 s / 10 s defaults and one at the old 3 s / 5 s defaults (#35). Each run includes about 20 s of launch, so steady-state CPU is lower. Background idle measured well above an earlier 0.31 % / 24 MB figure; the cause is not yet known.
 - The window-open numbers use `--assume-visible` because the display may be asleep during automated runs. The rendering cost on an awake, visible screen is unverified.
 - One of six Processes runs showed a short burst to about 10 %. I did not find the cause.
 - The biggest cost with the window open is SwiftUI `Table` diffing about 740 rows every refresh. The sampler itself uses under 1 %.
