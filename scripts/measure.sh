@@ -1,6 +1,6 @@
 #!/bin/sh
 # Measures MacLens's own footprint. Read-only: the scan phase only reads your home folder.
-#   1. background idle (window closed, menu bar only)   2. window open on Dashboard, then Processes (3 s refresh)
+#   1. background idle (window closed, menu bar only)   2. window open on Dashboard, then Processes (default 5 s refresh)
 #   3. full home-folder scan: duration and peak memory
 # CPU numbers include child processes (/bin/ps, netstat) via /usr/bin/time.
 set -eu

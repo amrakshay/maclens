@@ -49,7 +49,7 @@ enum Tab: String, CaseIterable, Identifiable {
     @Published var batteryHigh: Int { didSet { d.set(batteryHigh, forKey: "batteryHigh") } }
 
     init() {
-        d.register(defaults: ["refreshInterval": 3.0, "backgroundInterval": 5.0,
+        d.register(defaults: ["refreshInterval": 5.0, "backgroundInterval": 10.0,
                               "hideSystemProcesses": true, "hideSystemPorts": true, "hideSystemHeat": false,
                               "notifyThermal": true, "notifyRunaway": true, "runawayCPU": 90.0, "runawayMinutes": 5.0,
                               "notifyBattery": true, "batteryLow": 20, "batteryHigh": 80])
