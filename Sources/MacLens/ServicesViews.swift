@@ -12,6 +12,7 @@ import MacLensCore
         var startsAtLogin: Bool
         var cpu: Double = -1
         var memory: Int64 = -1
+        var memoryIsFootprint = false
     }
     struct Message: Equatable { let ok: Bool; let text: String }
 
@@ -56,7 +57,7 @@ import MacLensCore
                                     arguments: { ProcList.arguments(pid: $0) },
                                     name: { byPid[$0]?.name ?? ProcList.path(pid: $0).map(PathUtil.lastComponent) ?? "PID \($0)" })
             var r = Row(component: c, state: s, startsAtLogin: VoiceMode.startsAtLogin(c))
-            if case .running(let pid) = s, let p = byPid[pid] { r.cpu = p.cpu; r.memory = p.memory }
+            if case .running(let pid) = s, let p = byPid[pid] { r.cpu = p.cpu; r.memory = p.memory; r.memoryIsFootprint = p.memoryIsFootprint }
             return r
         }
         for r in new where r.state.isRunning || Date().timeIntervalSince(starting[r.id] ?? .distantPast) > 120 {
@@ -209,6 +210,13 @@ struct ServiceRow: View {
         }
     }
 
+    private var memoryHelp: String {
+        let what = row.memoryIsFootprint
+            ? "Memory footprint: the RAM macOS charges to this process, the same number as Activity Monitor's Memory column. It includes GPU (Metal) buffers, which share RAM on Apple Silicon, and pages macOS has compressed or swapped while the service is idle, so it's often much larger than the resident size that ps and `voicemode service status` report."
+            : "Resident memory (RSS): only pages currently in RAM. macOS doesn't expose this process's footprint to MacLens, so compressed and GPU memory aren't counted."
+        return "CPU and memory of the process listening on port \(c.port) (not its launcher scripts).\n\n" + what
+    }
+
     @ViewBuilder private var statusText: some View {
         switch row.state {
         case .running(let pid):
@@ -216,7 +224,7 @@ struct ServiceRow: View {
                 Text("Running").foregroundStyle(.green)
                 Text("PID \(String(pid)) · \(Fmt.pct(row.cpu))% CPU · \(Fmt.bytes(row.memory))")
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    .help("CPU and memory of the process listening on the port")
+                    .help(memoryHelp)
             }
         case .portInUse(let pid, let name):
             Text("Port \(String(c.port)) is used by \(name) (PID \(String(pid)))").foregroundStyle(.orange)
