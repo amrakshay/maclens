@@ -224,6 +224,7 @@ struct DeleteConfirmSheet: View {
 struct SettingsView: View {
     @EnvironmentObject var settings: Settings
     @EnvironmentObject var model: AppModel
+    @EnvironmentObject var water: WaterStore
     @State private var hasFDA = FullDiskAccess.granted()
 
     var body: some View {
@@ -273,6 +274,7 @@ struct SettingsView: View {
                 Text("Each alert fires once when the level is reached. It fires again only after the battery moves back past the level (e.g. charged above \(settings.batteryLow + 2)% before another low alert).")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            WaterSettingsSection()
             Section("Permissions") {
                 LabeledContent("Full Disk Access") {
                     Text(hasFDA ? "Granted" : "Not granted").foregroundStyle(hasFDA ? .green : .orange)
@@ -297,6 +299,8 @@ struct SettingsView: View {
         .onChange(of: settings.notifyRunaway) { if settings.notifyRunaway { model.notifier.requestAuthorization() } }
         .onChange(of: settings.notifyThermal) { if settings.notifyThermal { model.notifier.requestAuthorization() } }
         .onChange(of: settings.notifyBattery) { if settings.notifyBattery { model.notifier.requestAuthorization() } }
+        .onChange(of: water.enabled) { if water.enabled && water.style == .notification { model.notifier.requestAuthorization() } }
+        .onChange(of: water.style) { if water.enabled && water.style == .notification { model.notifier.requestAuthorization() } }
     }
 }
 

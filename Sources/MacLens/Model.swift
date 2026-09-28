@@ -147,6 +147,7 @@ struct PortRow: Identifiable, Hashable {
     let sleep = SleepStore()
     let updates = UpdateStore()
     let services = ServicesStore()
+    let water = WaterStore()
     @Published private(set) var windowVisible = false
     private let engine = Engine()
     private var observers: [NSObjectProtocol] = []
@@ -167,6 +168,12 @@ struct PortRow: Identifiable, Hashable {
         updates.notify = { [weak self] r in self?.notifier.postUpdate(r, current: self?.updates.currentVersionString ?? "") }
         updates.start()
         services.refreshPorts = { [weak self] in self?.refreshPortsNow() }
+        observers.append(NotificationCenter.default.addObserver(forName: AppDelegate.waterAction, object: nil, queue: .main) { [weak self] n in
+            let action = n.object as? String ?? ""
+            MainActor.assumeIsolated { self?.water.handleNotificationAction(action) }
+        })
+        water.notify = { [weak self] in self?.notifier.postWater() }
+        if water.enabled && water.style == .notification { notifier.requestAuthorization() }
     }
 
     var shouldOpenWindowAtLaunch: Bool {
@@ -303,7 +310,7 @@ struct HistoryPoint: Identifiable {
 @MainActor final class Notifier {
     private var lastThermal: ProcessInfo.ThermalState = .nominal
     private var notified: [ProcKey: Date] = [:]
-    private var available: Bool { Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil }
+    var available: Bool { Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil }
 
     func requestAuthorization() {
         guard available else { return }
@@ -347,18 +354,36 @@ struct HistoryPoint: Identifiable {
         post("MacLens \(r.version.description) is available", "You have \(current). Click to see what's new and update.", userInfo: ["kind": "update"])
     }
 
+    func postWater() {
+        post("Time to drink some water", "Take a sip and stretch for a moment.", userInfo: ["kind": "water"], category: WaterStore.categoryID)
+    }
+
+    /// Why a notification won't appear, if we can tell. nil = it should show (Focus / Do Not Disturb can still hide it).
+    func deliveryProblem() async -> String? {
+        guard available else {
+            return "This development build (swift run) can't post notifications; it writes them to its log. They work in the installed MacLens.app."
+        }
+        let s = await UNUserNotificationCenter.current().notificationSettings()
+        switch s.authorizationStatus {
+        case .denied: return "Notifications are turned off for MacLens. Allow them in System Settings → Notifications → MacLens."
+        case .notDetermined: requestAuthorization(); return "macOS is asking whether MacLens may send notifications. Allow it, then try again."
+        default: return s.alertSetting == .disabled ? "MacLens notifications are set to not show banners. Change the style in System Settings → Notifications → MacLens." : nil
+        }
+    }
+
     func sendTest() {
         requestAuthorization()
         post("MacLens test alert", "Notifications are working. Battery, thermal and runaway-process alerts will look like this.")
     }
 
-    private func post(_ title: String, _ body: String, userInfo: [String: String] = [:]) {
+    private func post(_ title: String, _ body: String, userInfo: [String: String] = [:], category: String? = nil) {
         // Pass the text as an argument: a "%" in it ("20% alert") must not be parsed as a format specifier (#26).
         guard available else { NSLog("%@", "MacLens notification: \(title) — \(body)"); return }
         let c = UNMutableNotificationContent()
         c.title = title
         c.body = body
         c.userInfo = userInfo
+        if let category { c.categoryIdentifier = category }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
     }
 }
