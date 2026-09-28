@@ -4,7 +4,7 @@ import UserNotifications
 import MacLensCore
 
 enum Tab: String, CaseIterable, Identifiable {
-    case dashboard, processes, heat, ports, storage, artifacts, settings
+    case dashboard, processes, heat, ports, storage, artifacts, services, settings
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -14,6 +14,7 @@ enum Tab: String, CaseIterable, Identifiable {
         case .ports: return "Ports"
         case .storage: return "Storage"
         case .artifacts: return "Developer Artifacts"
+        case .services: return "Additional Services"
         case .settings: return "Settings"
         }
     }
@@ -25,6 +26,7 @@ enum Tab: String, CaseIterable, Identifiable {
         case .ports: return "network"
         case .storage: return "internaldrive"
         case .artifacts: return "shippingbox"
+        case .services: return "puzzlepiece.extension"
         case .settings: return "gearshape"
         }
     }
@@ -144,6 +146,7 @@ struct PortRow: Identifiable, Hashable {
     let history = HistoryStore()
     let sleep = SleepStore()
     let updates = UpdateStore()
+    let services = ServicesStore()
     let water = WaterStore()
     @Published private(set) var windowVisible = false
     private let engine = Engine()
@@ -164,6 +167,7 @@ struct PortRow: Identifiable, Hashable {
         if settings.notifyThermal || settings.notifyRunaway || settings.notifyBattery || updates.autoCheck { notifier.requestAuthorization() }
         updates.notify = { [weak self] r in self?.notifier.postUpdate(r, current: self?.updates.currentVersionString ?? "") }
         updates.start()
+        services.refreshPorts = { [weak self] in self?.refreshPortsNow() }
         observers.append(NotificationCenter.default.addObserver(forName: AppDelegate.waterAction, object: nil, queue: .main) { [weak self] n in
             let action = n.object as? String ?? ""
             MainActor.assumeIsolated { self?.water.handleNotificationAction(action) }
@@ -200,7 +204,7 @@ struct PortRow: Identifiable, Hashable {
             m.interval = settings.refreshInterval
             switch tab {
             case .processes, .heat: m.foreignEvery = 0
-            case .ports: m.ports = true
+            case .ports, .services: m.ports = true
             case .dashboard: m.foreignEvery = 10; m.ports = true
             default: break
             }
@@ -218,6 +222,7 @@ struct PortRow: Identifiable, Hashable {
         engine.refreshPortsNow { [weak self] entries in
             guard let self else { return }
             self.ports.update(entries, processes: self.monitor.processes)
+            if self.tab == .services { self.services.update(ports: entries, processes: self.monitor.processes) }
         }
     }
 
@@ -234,7 +239,10 @@ struct PortRow: Identifiable, Hashable {
         } else if !monitor.processes.isEmpty {
             monitor.processes = [] // drop the big array while hidden
         }
-        if let p = out.ports { ports.update(p, processes: out.processes) }
+        if let p = out.ports {
+            ports.update(p, processes: out.processes)
+            if windowVisible && tab == .services { services.update(ports: p, processes: out.processes) }
+        }
         history.append(out, publish: windowVisible && tab == .dashboard)
         sleep.update(from: out.processes)
 
@@ -369,7 +377,8 @@ struct HistoryPoint: Identifiable {
     }
 
     private func post(_ title: String, _ body: String, userInfo: [String: String] = [:], category: String? = nil) {
-        guard available else { NSLog("MacLens notification: \(title) — \(body)"); return }
+        // Pass the text as an argument: a "%" in it ("20% alert") must not be parsed as a format specifier (#26).
+        guard available else { NSLog("%@", "MacLens notification: \(title) — \(body)"); return }
         let c = UNMutableNotificationContent()
         c.title = title
         c.body = body

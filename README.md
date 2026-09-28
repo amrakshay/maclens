@@ -9,6 +9,7 @@ A small native macOS app for developers. It answers:
 - Why is the battery draining?
 - Who owns this port?
 - Which build artifacts can I delete?
+- Can I run heavy helper services (like VoiceMode) only when I need them?
 
 It is written in Swift/SwiftUI with no third-party dependencies and needs no root. With the window closed it uses about 0.3% of one CPU core. The reasoning behind the design is in [RESEARCH.md](RESEARCH.md).
 
@@ -153,6 +154,14 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
 - Columns: type, size, reclaimable bytes, owning project, last activity (with its source), and path.
 - Filter by type, by "not used in N days", or by text. Sort by any column. Totals update with the filter and selection.
 - **Move to Trash…** is the default. **Delete Permanently…** is a separate button. Either one shows a confirmation that lists every path and the total size. Global caches carry a re-download warning.
+
+**Additional Services**
+- Start and stop optional background services on demand, so they use memory and CPU only while you need them. The first one is [VoiceMode](https://github.com/mbailey/voicemode): Whisper (speech-to-text, port 2022), Kokoro (text-to-speech, port 8880) and, if installed, MLX-Audio (port 8890).
+- Each component shows whether it's running, starting, stopped, or its port is taken by another process. Running components also show PID, CPU and memory.
+- **Start**, **Stop**, **Start all** and **Stop all** run your own `voicemode service start|stop <name>`, as you, with no root. The CLI's message appears under the row.
+- **Start at login** runs `voicemode service enable|disable <name>`. That adds or removes a LaunchAgent, so launchd starts the service at every login. Leave it off to run services only on demand.
+- Status comes from listening ports while the tab is open. MacLens doesn't poll `voicemode service status`, which takes about 3 s of wall time and about 1.3 s of CPU per call.
+- Without VoiceMode, the page shows a warning with install instructions and disables the controls. MacLens looks for `voicemode` in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` and `PATH`.
 
 **Updates**
 - MacLens checks GitHub Releases once a day, with one small request. You can turn this off or run **Check now** in Settings.

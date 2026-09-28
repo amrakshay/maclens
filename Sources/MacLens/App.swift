@@ -75,6 +75,7 @@ struct MacLensApp: App {
                 .environmentObject(model.sleep)
                 .environmentObject(model.updates)
                 .environmentObject(model.water)
+                .environmentObject(model.services)
                 .frame(minWidth: 900, minHeight: 560)
         }
         .defaultSize(width: 1180, height: 740)
@@ -148,6 +149,7 @@ struct MainView: View {
                 case .ports: PortsView()
                 case .storage: StorageView()
                 case .artifacts: ArtifactsView()
+                case .services: ServicesView()
                 case .settings: SettingsView()
                 }
             }

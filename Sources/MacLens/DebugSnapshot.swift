@@ -26,6 +26,8 @@ import MacLensCore
                 if tab == .heat { renderOffscreen(HeatContent(), model: model, to: dir.appendingPathComponent("heat-content.png")) }
                 if tab == .dashboard { renderOffscreen(DashboardContent(), model: model, to: dir.appendingPathComponent("dashboard-content.png")) }
             }
+            // What machines without VoiceMode see on the Additional Services tab.
+            renderOffscreen(NotInstalledWarning().padding().frame(width: 760), model: model, to: dir.appendingPathComponent("services-not-installed.png"))
             // Water reminders (#28): the on-screen alert (Settings → Water reminders is in settings.png only when scrolled into view).
             renderOffscreen(WaterAlertView(interval: 30).frame(width: 440), model: model, to: dir.appendingPathComponent("water-alert.png"))
             // Update window with a sample release (no real newer release exists to show it otherwise).
@@ -71,7 +73,7 @@ import MacLensCore
     static func renderOffscreen<V: View>(_ view: V, model: AppModel, to url: URL) {
         let r = ImageRenderer(content: view.frame(width: 1000)
             .environmentObject(model).environmentObject(model.settings).environmentObject(model.monitor)
-            .environmentObject(model.history).environmentObject(model.ports).environmentObject(model.artifacts).environmentObject(model.sleep).environmentObject(model.updates).environmentObject(model.water)
+            .environmentObject(model.history).environmentObject(model.ports).environmentObject(model.artifacts).environmentObject(model.sleep).environmentObject(model.updates).environmentObject(model.services).environmentObject(model.water)
             .background(Color.white))
         r.scale = 2
         if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {

@@ -406,6 +406,40 @@ do {
     }
 }
 
+// MARK: - Additional services (VoiceMode)
+section("Additional services")
+do {
+    // Fake home with only a whisper install and a CLI on a custom PATH; nothing is started or stopped.
+    let home = PathUtil.join(T, "vmhome")
+    mkdir("vmhome/.voicemode/services/whisper"); mkdir("vmhome/bin"); mkdir("vmhome/Library/LaunchAgents")
+    let cli = PathUtil.join(home, "bin/voicemode")
+    fm.createFile(atPath: cli, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
+    check(VoiceMode.locate(home: home, path: "/nonexistent") == nil, "voicemode not found when absent")
+    check(VoiceMode.locate(home: home, path: "/nonexistent:" + PathUtil.join(home, "bin")) == cli, "voicemode found on PATH")
+    let whisper = VoiceMode.components.first { $0.id == "whisper" }!, kokoro = VoiceMode.components.first { $0.id == "kokoro" }!
+    check(VoiceMode.isInstalled(whisper, home: home) && !VoiceMode.isInstalled(kokoro, home: home), "install detected per component")
+    check(!VoiceMode.startsAtLogin(whisper, home: home), "no LaunchAgent → doesn't start at login")
+    fm.createFile(atPath: VoiceMode.plistPath(whisper, home: home), contents: Data())
+    check(VoiceMode.startsAtLogin(whisper, home: home), "LaunchAgent plist → starts at login")
+
+    let l = PortScanner.parse("""
+    tcp4       0      0  *.2022                 *.*                    LISTEN                 0            0  131072  131072     whisper-server:489   00100 00000106 0000000002e45ef8 00000000 00000800      1      0 000000
+    tcp4       0      0  *.8880                 *.*                    LISTEN                 0            0  131072  131072               node:700   00100 00000106 0000000002e45ef8 00000000 00000800      1      0 000000
+    """)
+    let args: (Int32) -> [String]? = { $0 == 489 ? [home + "/.voicemode/services/whisper/build/bin/whisper-server", "--port", "2022"] : ["node", "server.js"] }
+    let name: (Int32) -> String = { $0 == 700 ? "node" : "?" }
+    check(VoiceMode.state(of: whisper, installed: true, listeners: l, arguments: args, name: name) == .running(pid: 489), "whisper listener → running")
+    check(VoiceMode.state(of: kokoro, installed: true, listeners: l, arguments: args, name: name) == .portInUse(pid: 700, name: "node"), "foreign process on 8880 → port in use")
+    check(VoiceMode.state(of: kokoro, installed: true, listeners: [], arguments: args, name: name) == .stopped, "no listener → stopped")
+    check(VoiceMode.state(of: kokoro, installed: false, listeners: [], arguments: args, name: name) == .notInstalled, "not installed")
+    check(VoiceMode.looksFailed("❌ Failed to start kokoro: boom") && !VoiceMode.looksFailed("⚠️ Kokoro process started but not listening on port 8880 yet"),
+          "CLI failure detected from its output (it exits 0)")
+    // The runner itself, against a stub CLI that echoes its arguments.
+    fm.createFile(atPath: cli, contents: Data("#!/bin/sh\necho \"✅ $2 $3\"\n".utf8), attributes: [.posixPermissions: 0o755])
+    let r = VoiceMode.run(.start, whisper, executable: cli)
+    check(r.ok && r.output == "✅ start whisper", "runs `service start whisper` (\(r.output))")
+}
+
 // MARK: - Water reminders
 section("Water reminders")
 do {
