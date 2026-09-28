@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.4.0](https://github.com/amrakshay/maclens/compare/v1.3.0...v1.4.0) (2026-09-28)
+
+
+### Features
+
+* Additional Services tab to start and stop VoiceMode on demand ([#25](https://github.com/amrakshay/maclens/issues/25)) ([5802de2](https://github.com/amrakshay/maclens/commit/5802de2cfdfd947eb66714f5abd8ac0fb94f0bf8))
+* opt-in water reminders during work hours that skip while the screen is shared ([#30](https://github.com/amrakshay/maclens/issues/30)) ([d82b796](https://github.com/amrakshay/maclens/commit/d82b796e6b16edefc13dcf2e8979f96099f69d00))
+
+
+### Bug Fixes
+
+* don't use notification text as an NSLog format string ([#27](https://github.com/amrakshay/maclens/issues/27)) ([51c8a9c](https://github.com/amrakshay/maclens/commit/51c8a9cd1a5123afbbb3fe87aca08a14e663878d)), closes [#26](https://github.com/amrakshay/maclens/issues/26)
+
 ## [1.3.0](https://github.com/amrakshay/maclens/compare/v1.2.1...v1.3.0) (2026-09-27)
 
 
