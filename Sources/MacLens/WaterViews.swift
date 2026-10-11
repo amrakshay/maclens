@@ -7,9 +7,15 @@ import MacLensCore
 /// While on, one timer ticks every minute; each tick is a few cheap reads (session dictionary, HID idle time, screen watcher).
 @MainActor final class WaterStore: ObservableObject {
     enum Style: String, CaseIterable, Identifiable {
-        case notification, onScreen
+        case notification, onScreen, character
         var id: String { rawValue }
-        var title: String { self == .notification ? "Notification" : "On-screen alert" }
+        var title: String {
+            switch self {
+            case .notification: return "Notification"
+            case .onScreen: return "On-screen alert"
+            case .character: return "Character" // the desktop character (#39)
+            }
+        }
     }
 
     private let d = UserDefaults.standard
@@ -30,6 +36,9 @@ import MacLensCore
     private var timer: Timer?
     private let panel = WaterPanelController()
     var notify: (() -> Void)?
+    /// Set by `AppModel` for the Character style: queue a reminder for the desktop character, and whether one is visible or queued.
+    var showCharacter: (() -> Void)?
+    var characterVisible: () -> Bool = { false }
 
     init() {
         d.register(defaults: ["waterEnabled": false, "waterInterval": 30, "waterStyle": Style.notification.rawValue,
@@ -79,7 +88,7 @@ import MacLensCore
         let now = Date()
         let away = PresenceSignals.screenIsLocked() || (PresenceSignals.idleSeconds() ?? 0) >= engine.interval
         let sharing = skipWhileSharing && (PresenceSignals.screenIsShared() ?? false)
-        let decision = engine.tick(now: now, sharing: sharing, away: away, alertVisible: panel.isVisible)
+        let decision = engine.tick(now: now, sharing: sharing, away: away, alertVisible: panel.isVisible || characterVisible())
         if pausedUntil != engine.pausedUntil { pausedUntil = engine.pausedUntil }
         nextDue = engine.nextDue
         switch decision {
@@ -92,6 +101,7 @@ import MacLensCore
         switch style {
         case .notification: notify?()
         case .onScreen: panel.show(interval: intervalMinutes)
+        case .character: showCharacter?()
         }
     }
 
@@ -130,7 +140,13 @@ import MacLensCore
         tick() // on resume, a reminder owed during the pause shows now
     }
 
-    func showTest() { style == .notification ? notify?() : panel.show(interval: intervalMinutes) }
+    func showTest() {
+        switch style {
+        case .notification: notify?()
+        case .onScreen: panel.show(interval: intervalMinutes)
+        case .character: showCharacter?()
+        }
+    }
 
     var statusLine: String {
         let fmt: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }
@@ -241,13 +257,16 @@ struct PauseMenu: View {
 
 struct WaterMenuSection: View {
     @EnvironmentObject var water: WaterStore
+    /// Some alert is shown as the desktop character, which Pause also holds back (#39).
+    var characterInUse = false
 
     var body: some View {
-        if water.enabled {
+        if water.enabled || characterInUse {
             Divider()
             HStack {
-                Image(systemName: water.isPaused ? "drop" : "drop.fill").foregroundStyle(.blue)
-                Text(water.statusLine).lineLimit(1)
+                if water.enabled { Image(systemName: water.isPaused ? "drop" : "drop.fill").foregroundStyle(.blue) }
+                else { Image(systemName: "figure.wave").foregroundStyle(.blue) }
+                Text(water.enabled || water.isPaused ? water.statusLine : "Desktop character on").lineLimit(1)
                 Spacer()
                 if water.isPaused { Button("Resume now") { water.resume() } }
                 else { PauseMenu(label: "Pause") }
@@ -302,7 +321,7 @@ struct WaterSettingsSection: View {
                 }
             }
             .disabled(!water.enabled)
-            Text("Off by default. Reminders appear only during work hours on workdays. One skipped while you share your screen or pause is shown once, when that ends; while the Mac is locked or idle longer than the interval, it's skipped. Reminders never pile up. The on-screen alert stays above all windows until you click Done, Snooze or Pause. Screen-sharing detection is confirmed for Zoom; if another app isn't detected, use Pause from the menu bar.")
+            Text("Off by default. Reminders appear only during work hours on workdays. One skipped while you share your screen or pause is shown once, when that ends; while the Mac is locked or idle longer than the interval, it's skipped. Reminders never pile up. The on-screen alert and the character stay above all windows until you click Done, Snooze or Pause; the character never appears while the screen is shared. Screen-sharing detection is confirmed for Zoom; if another app isn't detected, use Pause from the menu bar.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .onChange(of: water.style) { testNote = nil }

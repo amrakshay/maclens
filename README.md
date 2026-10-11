@@ -197,11 +197,19 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
   - **Send test alert** checks that notifications are allowed.
 - **Water reminders** (opt-in, off by default):
   - A reminder every **30 min** (15 min to 2 h), only during work hours: **10:00–19:00 IST, Mon–Fri** by default. Hours, workdays and time zone are configurable. The time zone is stored with the hours, so they don't move if the Mac's time zone changes.
-  - Shown as a **notification** or an **on-screen alert**. The on-screen alert is a floating panel above all windows, on every Space and over full-screen apps, with **Done**, **Snooze 10 min** and **Pause…**. It doesn't take keyboard focus.
+  - Shown as a **notification**, an **on-screen alert** or the **desktop character** (below). The on-screen alert is a floating panel above all windows, on every Space and over full-screen apps, with **Done**, **Snooze 10 min** and **Pause…**. It doesn't take keyboard focus.
   - **Skipped while the screen is shared, recorded or mirrored.** The skipped reminder is shown once, when sharing ends. Detection is confirmed for Zoom; other apps are being checked in #29.
   - **Pause** for 30 min, 1 h, 2 h or until the end of the shift, from the menu bar menu or the alert. **Resume now** ends it early. A reminder that came due during the pause is shown once.
   - Skipped (not deferred) while the Mac is locked or idle longer than the interval. Reminders never pile up: at most one is pending or on screen.
   - While it's off, no timer runs. While it's on, one timer wakes once a minute for a few cheap reads.
+- **Desktop character** (opt-in, off by default):
+  - An original MacLens mascot, a lens-headed chibi drawn in code, can deliver alerts instead of notifications. Choose **Character** under **Water reminders → Show as**, and under **Desktop character** for battery, heat and runaway-process alerts and for update alerts. Each alert is delivered one way, never both.
+  - It walks in from the right edge of the screen with a prop for the alert: a glass of water, a dragged power cable (battery low), an unplugged cable (battery charged), a fan (running hot), a sign with the process name (runaway CPU) or a gift box (update). The message is in a speech bubble with the alert's buttons, and it stays until you click one. Then it walks off.
+  - **Never shown while the screen is shared, recorded or mirrored**, whatever the water reminders' sharing setting. If a share starts while it's on screen, it disappears at once. The alert comes back when the share ends, if it still applies (battery still low, Mac still hot). It uses the same detector as water reminders, confirmed for Zoom (#29 tracks other apps).
+  - Waits while the Mac is locked, while there's been no input for 5 minutes, and while reminders are **paused** (menu bar menu). It shows one alert at a time; the others queue by priority: battery low, running hot, runaway CPU, water, battery charged, update. A newer alert of the same kind replaces the queued one.
+  - It doesn't take keyboard focus. With Reduce Motion on, it fades in and out instead of walking.
+  - **Show a test character** in Settings shows each expression.
+  - Nothing is created until an alert uses it, and while nothing is queued it reads no signals and runs no timer. While it waits on screen, one timer checks for screen sharing once a second and the mascot blinks every 4 s. See **Measured footprint** for its cost.
 - The exact "system process" and "protected path" definitions.
 
 ### Detection rules (marker files, not folder names)
@@ -250,6 +258,8 @@ Measured on an M4 Pro running macOS 26.6.1 with `./scripts/measure.sh`, release 
 | Window open on Heat & Battery | ~1.5 % | — |
 | Window open on Ports | ~0.9 % | — |
 | Window open on Settings | ~0.3 % | — |
+| **Desktop character waiting on screen** (#39; otherwise background) | **+0.13 %** over background in steady state: 1.08–1.11 % vs 0.96–0.97 % (MacLens process only, two 120 s runs each, after launch). Whole run incl. launch and children: 1.86 % over 140 s | 71–72 MB, **+1–2 MB** over background in the same runs |
+| Desktop character after it has left | 1.79 % over a 140 s run incl. launch, the same as background within noise | 69 MB |
 | **Full home-folder scan** (173 GB: 289k folders, 2.05M files; no cache) | 12–13 s | **105 MB peak** (app with window). The scan core alone peaks at 51 MB. |
 | Incremental rescan of the same tree | 0.96 s (re-read 5 of 289k folders) | — |
 | Developer-artifact scan of home (89 items, 37 GB) | 11.9 s | 13 MB peak (scan core) |
@@ -260,6 +270,7 @@ Notes:
 - One of six Processes runs showed a short burst to about 10 %. I did not find the cause.
 - The biggest cost with the window open is SwiftUI `Table` diffing about 740 rows every refresh. The sampler itself uses under 1 %.
 - The Dashboard's sparklines are drawn as plain paths rather than charts. That cut its memory from 175 MB to about 61 MB.
+- The desktop character rows were measured on 2026-10-11 with `measure.sh` phases 3a/3b plus alternating steady-state runs. Energy (`ri_energy_nj`, MacLens's own process) was 10.5–11.8 mW in background, character and after-leave runs alike; the differences are within run-to-run noise. After it leaves, about 3 MB of AppKit and SwiftUI stays loaded, measured on a background-only build.
 - Closing the window drops the process list and the scan tree from memory. The tree is reloaded from the on-disk cache when needed.
 
 ## How it works
@@ -287,6 +298,8 @@ Debug flags:
 - `--tab NAME` opens a specific tab.
 - `--assume-visible` treats the window as on-screen.
 - `--autoscan-home` starts a home scan at launch.
+- `--character KIND` shows a test desktop character 2 s after launch (`water`, `batteryLow`, `batteryHigh`, `hot`, `runaway`, `update`). `--character-dismiss-after S` dismisses it S seconds later.
+- `--character-snapshot DIR` renders every character expression and pose to PNGs, then quits.
 
 ## Contributing
 

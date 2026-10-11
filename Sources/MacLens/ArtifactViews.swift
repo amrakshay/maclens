@@ -279,6 +279,7 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             WaterSettingsSection()
+            CharacterSettingsSection()
             Section("Permissions") {
                 LabeledContent("Full Disk Access") {
                     Text(hasFDA ? "Granted" : "Not granted").foregroundStyle(hasFDA ? .green : .orange)

@@ -45,6 +45,7 @@ swift run maclens-selftest
 
 Screen capture usually isn't permitted, so the app renders itself:
 - `MacLens --snapshot DIR` writes one PNG per tab, then quits. It uses `--assume-visible` behaviour.
+- `MacLens --character-snapshot DIR` renders every desktop-character expression and pose (light and dark backgrounds), then quits. The panel itself can't be captured: it sets `sharingType = .none`.
 - Content inside SwiftUI `ScrollView`, and AppKit-backed controls, may be missing from the window capture. For the Heat & Battery and Dashboard content, look at `heat-content.png` and `dashboard-content.png`, which `ImageRenderer` produces. Yellow boxes there are placeholders for AppKit controls, not bugs.
 
 Other flags:
@@ -85,6 +86,7 @@ Other flags:
 - **Disk rescans:** FSEvents history drives incremental rescans. Tests must sleep ~1.5 s after writes so events get IDs before the baseline scan.
 - **Hard links:** attributed after traversal, with `ScanTree.linkOwners` persisted in the cache. This avoids double counting on rescans.
 - **SwiftUI:** a `Table` nested inside a `ScrollView` collapses. `GroupBox` content doesn't appear in layer captures, which is why `Panel` is used.
+- **SwiftUI `Canvas` for animation:** each redraw burst allocated about 100 MB of transient GPU memory (the desktop character's walk and blink, #39). Draw frequently redrawn views with Core Graphics in an `NSView` instead.
 - **Gatekeeper:**
   - Homebrew sets `com.apple.quarantine` on installs and upgrades (5.0+ has no `--no-quarantine`).
   - `URLSession` downloads aren't quarantined.

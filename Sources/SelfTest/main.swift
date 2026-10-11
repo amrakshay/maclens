@@ -31,6 +31,14 @@ if args.contains("--groups") { // read-only: print live application groups, bigg
     }
     exit(0)
 }
+if let i = args.firstIndex(of: "--energy"), i + 2 < args.count, let pid = Int32(args[i + 1]), let secs = Double(args[i + 2]) {
+    // Read-only: average power of PID over SECONDS from the kernel's energy counter (ri_energy_nj). Used by scripts/measure.sh.
+    guard let a = ProcessSampler.rusage(pid) else { print("energy: can't read PID \(pid)"); exit(1) }
+    usleep(UInt32(secs * 1_000_000))
+    guard let b = ProcessSampler.rusage(pid) else { print("energy: PID \(pid) exited"); exit(1) }
+    print(String(format: "energy: %.2f mW average over %.0f s", Double(b.ri_energy_nj - a.ri_energy_nj) / secs / 1e6, secs))
+    exit(0)
+}
 if let i = args.firstIndex(of: "--scan"), i + 1 < args.count {
     let root = args[i + 1]
     let scanner = DiskScanner()
@@ -536,6 +544,41 @@ do {
     check(e.tick(now: at(29, 10, 0), sharing: false, away: false, alertVisible: false) == .wait(.notDue), "next day starts fresh")
     check(PresenceSignals.idleSeconds() != nil, "HID idle time readable without permission (\(PresenceSignals.idleSeconds().map { String(format: "%.0f s", $0) } ?? "n/a"))")
     hardwareCheck(PresenceSignals.screenIsShared() != nil, "screen-watcher check available on this macOS")
+}
+
+// MARK: - Desktop character queue
+section("Desktop character queue")
+do {
+    func alert(_ k: CharacterAlertKind, _ title: String = "", subject: String? = nil) -> CharacterAlert {
+        CharacterAlert(kind: k, title: title.isEmpty ? k.rawValue : title, message: "", subject: subject)
+    }
+    let all: (CharacterAlert) -> Bool = { _ in true }
+    var q = CharacterQueue()
+    check(q.tick(sharing: false, paused: false, away: false, isValid: all) == .wait(.empty) && q.isIdle, "empty queue waits")
+    q.add(alert(.update)); q.add(alert(.water)); q.add(alert(.batteryLow)); q.add(alert(.hot))
+    check(q.pending.map(\.kind) == [.batteryLow, .hot, .water, .update], "queued in priority order: battery low > hot > water > update")
+    q.add(alert(.water, "newer"))
+    check(q.pending.count == 4 && q.pending.first { $0.kind == .water }?.title == "newer", "a newer alert of the same kind replaces the queued one")
+    check(q.tick(sharing: true, paused: false, away: false, isValid: all) == .wait(.sharing) && q.showing == nil, "nothing appears while sharing")
+    check(q.tick(sharing: false, paused: true, away: false, isValid: all) == .wait(.paused), "nothing appears while paused")
+    check(q.tick(sharing: false, paused: false, away: true, isValid: all) == .wait(.away), "nothing appears while away")
+    check(q.tick(sharing: false, paused: false, away: false, isValid: all) == .show(alert(.batteryLow)), "shows the highest priority first")
+    check(q.tick(sharing: false, paused: false, away: false, isValid: all) == .wait(.visible) && q.pending.count == 3, "one at a time: the rest wait")
+    check(q.tick(sharing: false, paused: false, away: true, isValid: all) == .wait(.visible), "stays on screen while away (until a button is clicked)")
+    check(q.add(alert(.batteryLow, "19%")) && q.showing?.title == "19%" && q.pending.count == 3, "same kind as the visible one updates it in place")
+    check(q.tick(sharing: true, paused: false, away: false, isValid: all) == .hide && q.showing == nil, "hidden at once when sharing starts")
+    check(q.pending.first?.kind == .batteryLow && q.pending.count == 4, "…and deferred, back at the front of the queue")
+    check(q.tick(sharing: false, paused: false, away: false, isValid: { $0.kind != .batteryLow }) == .show(alert(.hot)),
+          "dropped when no longer true (plugged in during the share); next one shown")
+    check(!q.contains(.batteryLow), "the stale battery alert is gone")
+    check(q.tick(sharing: false, paused: true, away: false, isValid: { $0.kind != .water }) == .hide && q.showing == nil && q.pending.map(\.kind) == [.hot, .update],
+          "a pause hides it; a paused water reminder is dropped, other alerts are kept")
+    check(q.dismiss() == nil, "nothing to dismiss while hidden")
+    _ = q.tick(sharing: false, paused: false, away: false, isValid: all)
+    check(q.dismiss()?.kind == .hot && q.showing == nil, "dismiss clears the visible alert")
+    check(q.tick(sharing: false, paused: false, away: false, isValid: all) == .show(alert(.update)), "then the next queued alert")
+    _ = q.dismiss()
+    check(q.isIdle, "idle once everything is dismissed")
 }
 
 // MARK: - Deletion guard

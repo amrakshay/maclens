@@ -36,6 +36,7 @@ import MacLensCore
             model.settings.groupProcessesByApp = grouped
             // What machines without VoiceMode see on the Additional Services tab.
             renderOffscreen(NotInstalledWarning().padding().frame(width: 760), model: model, to: dir.appendingPathComponent("services-not-installed.png"))
+            renderCharacters(model: model, dir: dir)
             // Water reminders (#28): the on-screen alert (Settings → Water reminders is in settings.png only when scrolled into view).
             renderOffscreen(WaterAlertView(interval: 30).frame(width: 440), model: model, to: dir.appendingPathComponent("water-alert.png"))
             // Update window with a sample release (no real newer release exists to show it otherwise).
@@ -77,6 +78,20 @@ import MacLensCore
         }
     }
 
+    /// Desktop character (#39): every expression with its bubble, and a sheet of poses (walk cycle, walking off, blink)
+    /// on light and dark backgrounds. `MacLens --character-snapshot DIR` renders only these, then quits.
+    static func renderCharacters(model: AppModel, dir: URL) {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for k in CharacterAlertKind.allCases {
+            renderOffscreen(CharacterPreview(alert: CharacterStore.sample(k)).frame(width: 300), model: model,
+                            to: dir.appendingPathComponent("character-\(k.rawValue).png"))
+        }
+        for dark in [false, true] {
+            renderOffscreen(CharacterPoseSheet().padding().background(dark ? Color(white: 0.12) : Color(white: 0.96)), model: model,
+                            to: dir.appendingPathComponent(dark ? "character-poses-dark.png" : "character-poses.png"))
+        }
+    }
+
     /// ScrollView content isn't captured from layers; render the view offscreen instead.
     static func renderOffscreen<V: View>(_ view: V, model: AppModel, to url: URL) {
         let r = ImageRenderer(content: view.frame(width: 1000)
@@ -99,5 +114,30 @@ import MacLensCore
             v.cacheDisplay(in: v.bounds, to: rep)
         }
         try? rep.representation(using: .png, properties: [:])?.write(to: url)
+    }
+}
+
+/// Every pose of the mascot, for checking the drawing without putting it on screen.
+struct CharacterPoseSheet: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                ForEach(CharacterAlertKind.allCases, id: \.self) { k in
+                    MascotImage(pose: MascotPose(kind: k, subject: k == .runaway ? "node" : nil))
+                }
+            }
+            HStack(spacing: 4) {
+                ForEach(0..<6, id: \.self) { i in
+                    MascotImage(pose: MascotPose(kind: .water, phase: Double(i) * .pi / 3, walking: true)) // walk cycle
+                }
+            }
+            HStack(spacing: 4) {
+                MascotImage(pose: MascotPose(kind: .water, blinking: true))
+                MascotImage(pose: MascotPose(kind: .batteryLow, phase: 1, walking: true))
+                ForEach(0..<3, id: \.self) { i in // walking off, empty-handed and facing right
+                    MascotImage(pose: MascotPose(kind: .water, phase: Double(i) * .pi / 2, walking: true, carrying: false), mirrored: true)
+                }
+            }
+        }
     }
 }
