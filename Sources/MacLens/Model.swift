@@ -205,9 +205,10 @@ struct PortRow: Identifiable, Hashable {
     private func setUpCharacter() {
         character.water = water
         notifier.showCharacter = { [weak self] a in self?.character.add(a) }
-        water.showCharacter = { [weak self] in
+        water.showCharacter = { [weak self] test in
             guard let self else { return }
-            self.character.add(CharacterStore.water(interval: self.water.intervalMinutes))
+            // A real reminder is dropped outside work hours; "Show a test reminder" must show anyway.
+            if test { self.character.test(.water) } else { self.character.add(CharacterStore.water(interval: self.water.intervalMinutes)) }
         }
         water.characterVisible = { [weak self] in self?.character.contains(.water) ?? false }
         character.isValid = { [weak self] a in self?.characterAlertApplies(a) ?? false }

@@ -36,8 +36,9 @@ import MacLensCore
     private var timer: Timer?
     private let panel = WaterPanelController()
     var notify: (() -> Void)?
-    /// Set by `AppModel` for the Character style: queue a reminder for the desktop character, and whether one is visible or queued.
-    var showCharacter: (() -> Void)?
+    /// Set by `AppModel` for the Character style: queue a reminder for the desktop character (`true` = a test, shown even
+    /// outside work hours), and whether one is visible or queued.
+    var showCharacter: ((_ test: Bool) -> Void)?
     var characterVisible: () -> Bool = { false }
 
     init() {
@@ -101,7 +102,7 @@ import MacLensCore
         switch style {
         case .notification: notify?()
         case .onScreen: panel.show(interval: intervalMinutes)
-        case .character: showCharacter?()
+        case .character: showCharacter?(false)
         }
     }
 
@@ -144,7 +145,7 @@ import MacLensCore
         switch style {
         case .notification: notify?()
         case .onScreen: panel.show(interval: intervalMinutes)
-        case .character: showCharacter?()
+        case .character: showCharacter?(true)
         }
     }
 
