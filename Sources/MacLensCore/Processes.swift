@@ -282,7 +282,7 @@ public final class ProcessSampler {
         return total + days * 86400
     }
 
-    static func rusage(_ pid: Int32) -> rusage_info_v6? {
+    public static func rusage(_ pid: Int32) -> rusage_info_v6? {
         var ri = rusage_info_v6()
         let r = withUnsafeMutablePointer(to: &ri) {
             $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V6, $0) }

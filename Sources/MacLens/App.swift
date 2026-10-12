@@ -221,7 +221,7 @@ struct MenuBarView: View {
                 if sleep.isActive { Button("Allow sleep") { sleep.allowSleep() } }
                 else { Button("Prevent sleep") { sleep.preventSleep() } }
             }
-            WaterMenuSection()
+            WaterMenuSection(characterInUse: model.settings.alertStyle == .character || model.settings.updateAlertStyle == .character)
             Divider()
             HStack {
                 Button("Open MacLens") {

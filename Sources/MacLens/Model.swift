@@ -32,6 +32,13 @@ enum Tab: String, CaseIterable, Identifiable {
     }
 }
 
+/// How an alert is delivered (#39). Exactly one of the two, never both.
+enum AlertStyle: String, CaseIterable, Identifiable {
+    case notification, character
+    var id: String { rawValue }
+    var title: String { self == .notification ? "Notification" : "Character" }
+}
+
 @MainActor final class Settings: ObservableObject {
     private let d = UserDefaults.standard
     @Published var refreshInterval: Double { didSet { d.set(refreshInterval, forKey: "refreshInterval") } }
@@ -49,12 +56,16 @@ enum Tab: String, CaseIterable, Identifiable {
     @Published var notifyBattery: Bool { didSet { d.set(notifyBattery, forKey: "notifyBattery") } }
     @Published var batteryLow: Int { didSet { d.set(batteryLow, forKey: "batteryLow") } }
     @Published var batteryHigh: Int { didSet { d.set(batteryHigh, forKey: "batteryHigh") } }
+    /// Battery, thermal and runaway-process alerts.
+    @Published var alertStyle: AlertStyle { didSet { d.set(alertStyle.rawValue, forKey: "alertStyle") } }
+    @Published var updateAlertStyle: AlertStyle { didSet { d.set(updateAlertStyle.rawValue, forKey: "updateAlertStyle") } }
 
     init() {
         d.register(defaults: ["refreshInterval": 5.0, "backgroundInterval": 10.0,
                               "hideSystemProcesses": true, "groupProcessesByApp": false, "hideSystemPorts": true, "hideSystemHeat": false,
                               "notifyThermal": true, "notifyRunaway": true, "runawayCPU": 90.0, "runawayMinutes": 5.0,
-                              "notifyBattery": true, "batteryLow": 20, "batteryHigh": 80])
+                              "notifyBattery": true, "batteryLow": 20, "batteryHigh": 80,
+                              "alertStyle": AlertStyle.notification.rawValue, "updateAlertStyle": AlertStyle.notification.rawValue])
         refreshInterval = d.double(forKey: "refreshInterval")
         backgroundInterval = d.double(forKey: "backgroundInterval")
         hideSystemProcesses = d.bool(forKey: "hideSystemProcesses")
@@ -68,6 +79,8 @@ enum Tab: String, CaseIterable, Identifiable {
         notifyBattery = d.bool(forKey: "notifyBattery")
         batteryLow = d.integer(forKey: "batteryLow")
         batteryHigh = d.integer(forKey: "batteryHigh")
+        alertStyle = AlertStyle(rawValue: d.string(forKey: "alertStyle") ?? "") ?? .notification
+        updateAlertStyle = AlertStyle(rawValue: d.string(forKey: "updateAlertStyle") ?? "") ?? .notification
     }
 }
 
@@ -151,7 +164,12 @@ struct PortRow: Identifiable, Hashable {
     let updates = UpdateStore()
     let services = ServicesStore()
     let water = WaterStore()
+    let character = CharacterStore()
     @Published private(set) var windowVisible = false
+    /// Latest readings, to tell whether a queued character alert still applies.
+    private var lastBattery = BatteryInfo()
+    private var lastThermal: ProcessInfo.ThermalState = .nominal
+    private var lastRunaway: Set<String> = []
     private let engine = Engine()
     private var observers: [NSObjectProtocol] = []
     private var didOpenAtLaunch = false
@@ -168,7 +186,10 @@ struct PortRow: Identifiable, Hashable {
             })
         }
         if settings.notifyThermal || settings.notifyRunaway || settings.notifyBattery || updates.autoCheck { notifier.requestAuthorization() }
-        updates.notify = { [weak self] r in self?.notifier.postUpdate(r, current: self?.updates.currentVersionString ?? "") }
+        updates.notify = { [weak self] r in
+            guard let self else { return }
+            self.notifier.postUpdate(r, current: self.updates.currentVersionString, style: self.settings.updateAlertStyle)
+        }
         updates.start()
         services.refreshPorts = { [weak self] in self?.refreshPortsNow() }
         observers.append(NotificationCenter.default.addObserver(forName: AppDelegate.waterAction, object: nil, queue: .main) { [weak self] n in
@@ -177,6 +198,61 @@ struct PortRow: Identifiable, Hashable {
         })
         water.notify = { [weak self] in self?.notifier.postWater() }
         if water.enabled && water.style == .notification { notifier.requestAuthorization() }
+        setUpCharacter()
+    }
+
+    /// Desktop character (#39): every alert shown as Character goes through one queue.
+    private func setUpCharacter() {
+        character.water = water
+        notifier.showCharacter = { [weak self] a in self?.character.add(a) }
+        water.showCharacter = { [weak self] test in
+            guard let self else { return }
+            // A real reminder is dropped outside work hours; "Show a test reminder" must show anyway.
+            if test { self.character.test(.water) } else { self.character.add(CharacterStore.water(interval: self.water.intervalMinutes)) }
+        }
+        water.characterVisible = { [weak self] in self?.character.contains(.water) ?? false }
+        character.isValid = { [weak self] a in self?.characterAlertApplies(a) ?? false }
+        character.openTab = { [weak self] tab in
+            self?.tab = tab
+            NotificationCenter.default.post(name: AppDelegate.reopen, object: nil)
+        }
+        character.openUpdate = { NotificationCenter.default.post(name: AppDelegate.showUpdate, object: nil) }
+        if let i = CommandLine.arguments.firstIndex(of: "--character-snapshot"), i + 1 < CommandLine.arguments.count {
+            let dir = URL(fileURLWithPath: CommandLine.arguments[i + 1], isDirectory: true)
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    DebugSnapshot.renderCharacters(model: self, dir: dir)
+                    NSApp.terminate(nil)
+                }
+            }
+        }
+        // Developer and measurement aid: `--character KIND` shows a test character shortly after launch.
+        let a = CommandLine.arguments
+        if let i = a.firstIndex(of: "--character"), i + 1 < a.count, let kind = CharacterAlertKind(rawValue: a[i + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in MainActor.assumeIsolated { self?.character.test(kind) } }
+            // `--character-dismiss-after S`: dismiss it S seconds later, to measure what's left once it has gone.
+            if let j = a.firstIndex(of: "--character-dismiss-after"), j + 1 < a.count, let secs = Double(a[j + 1]) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2 + secs) { [weak self] in MainActor.assumeIsolated { self?.character.dismissVisible() } }
+            }
+        }
+    }
+
+    /// A queued alert is shown only if it's still set to Character and still true when its turn comes
+    /// (e.g. after a screen share ends): battery still low, Mac still hot, process still running away, update still pending.
+    private func characterAlertApplies(_ a: CharacterAlert) -> Bool {
+        let s = settings
+        let b = lastBattery
+        switch a.kind {
+        case .water: return water.enabled && water.style == .character && water.inWorkHours && !water.isPaused
+        case .batteryLow:
+            return s.alertStyle == .character && s.notifyBattery && !b.isCharging && !b.onAC && (b.percent ?? 100) <= s.batteryLow
+        case .batteryHigh:
+            return s.alertStyle == .character && s.notifyBattery && (b.isCharging || b.onAC) && (b.percent ?? 0) >= s.batteryHigh - 2
+        case .hot: return s.alertStyle == .character && s.notifyThermal && lastThermal.rawValue >= ProcessInfo.ThermalState.serious.rawValue
+        case .runaway: return s.alertStyle == .character && s.notifyRunaway && a.subject.map(lastRunaway.contains) == true
+        case .update: return s.updateAlertStyle == .character && updates.available != nil
+        }
     }
 
     var shouldOpenWindowAtLaunch: Bool {
@@ -258,8 +334,12 @@ struct PortRow: Identifiable, Hashable {
         if summary.top.map(\.pid) != top.map(\.pid) || summary.top.map({ Int($0.avgEnergyW * 10) }) != top.map({ Int($0.avgEnergyW * 10) }) { summary.top = top }
         if summary.blockers != blockers { summary.blockers = blockers }
 
+        lastBattery = out.battery
+        lastThermal = out.thermalState
+        lastRunaway = Set(out.runaway.map(\.name))
         notifier.evaluate(thermal: out.thermalState, runaway: out.runaway, settings: settings)
         notifier.evaluateBattery(out.battery, settings: settings)
+        character.tick() // returns at once while nothing is queued
     }
 }
 
@@ -314,6 +394,8 @@ struct HistoryPoint: Identifiable {
     private var lastThermal: ProcessInfo.ThermalState = .nominal
     private var notified: [ProcKey: Date] = [:]
     var available: Bool { Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil }
+    /// Set by `AppModel`: alerts whose style is Character go to the desktop character instead (#39).
+    var showCharacter: ((CharacterAlert) -> Void)?
 
     func requestAuthorization() {
         guard available else { return }
@@ -322,7 +404,11 @@ struct HistoryPoint: Identifiable {
 
     func evaluate(thermal: ProcessInfo.ThermalState, runaway: [ProcSample], settings: Settings) {
         if settings.notifyThermal, thermal.rawValue >= ProcessInfo.ThermalState.serious.rawValue, lastThermal.rawValue < ProcessInfo.ThermalState.serious.rawValue {
-            post("Your Mac is running hot", "Thermal state is \(thermal.label). Open MacLens → Heat & Battery to see what's using energy.")
+            if settings.alertStyle == .character, let showCharacter {
+                showCharacter(CharacterAlert(kind: .hot, title: "Your Mac is running hot", message: "Thermal state is \(thermal.label). Heat & Battery shows what's using energy."))
+            } else {
+                post("Your Mac is running hot", "Thermal state is \(thermal.label). Open MacLens → Heat & Battery to see what's using energy.")
+            }
         }
         lastThermal = thermal
         guard settings.notifyRunaway else { return }
@@ -330,8 +416,9 @@ struct HistoryPoint: Identifiable {
         notified = notified.filter { now.timeIntervalSince($0.value) < 3600 }
         for p in runaway where notified[p.key] == nil {
             notified[p.key] = now
-            post("\(p.name) is using a lot of CPU",
-                 String(format: "%.0f%% CPU for over %.0f min (PID %d).", p.avgCPU, settings.runawayMinutes, p.pid))
+            deliver(.runaway, "\(p.name) is using a lot of CPU",
+                    String(format: "%.0f%% CPU for over %.0f min (PID %d).", p.avgCPU, settings.runawayMinutes, p.pid),
+                    subject: p.name, style: settings.alertStyle)
         }
     }
 
@@ -345,16 +432,30 @@ struct HistoryPoint: Identifiable {
         guard settings.notifyBattery, let alert else { return }
         switch alert {
         case .low(let p):
-            post("Battery at \(p)%", "Your battery dropped to your \(settings.batteryLow)% alert level. Plug in soon." +
-                 (b.minutesRemaining.map { " About \(Fmt.minutes($0)) left." } ?? ""))
+            deliver(.batteryLow, "Battery at \(p)%", "Your battery dropped to your \(settings.batteryLow)% alert level. Plug in soon." +
+                    (b.minutesRemaining.map { " About \(Fmt.minutes($0)) left." } ?? ""), style: settings.alertStyle)
         case .high(let p):
-            post("Battery charged to \(p)%", "Reached your \(settings.batteryHigh)% alert level. You can unplug to reduce battery wear.")
+            deliver(.batteryHigh, "Battery charged to \(p)%", "Reached your \(settings.batteryHigh)% alert level. You can unplug to reduce battery wear.",
+                    style: settings.alertStyle)
         }
     }
 
     /// One notification per new version; clicking it opens the update window (see AppDelegate).
-    func postUpdate(_ r: ReleaseInfo, current: String) {
-        post("MacLens \(r.version.description) is available", "You have \(current). Click to see what's new and update.", userInfo: ["kind": "update"])
+    func postUpdate(_ r: ReleaseInfo, current: String, style: AlertStyle) {
+        let title = "MacLens \(r.version.description) is available"
+        if style == .character, let showCharacter {
+            showCharacter(CharacterAlert(kind: .update, title: title, message: "You have \(current). See what's new and update."))
+        } else {
+            post(title, "You have \(current). Click to see what's new and update.", userInfo: ["kind": "update"])
+        }
+    }
+
+    private func deliver(_ kind: CharacterAlertKind, _ title: String, _ body: String, subject: String? = nil, style: AlertStyle) {
+        if style == .character, let showCharacter {
+            showCharacter(CharacterAlert(kind: kind, title: title, message: body, subject: subject))
+        } else {
+            post(title, body)
+        }
     }
 
     func postWater() {

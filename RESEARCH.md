@@ -189,6 +189,10 @@ The app shows **Last activity = max(project file mtime, git activity, artifact m
 - **Calls:** `kAudioDevicePropertyDeviceIsRunningSomewhere` (mic) and `kCMIODevicePropertyDeviceIsRunningSomewhere` (camera) are readable without permission. They're not used, because "in a call" isn't "sharing".
 - **Idle:** `HIDIdleTime` on the `IOHIDSystem` registry entry (nanoseconds), no permission. **Locked:** `CGSSessionScreenIsLocked` in `CGSessionCopyCurrentDictionary()`; the key is present only while locked.
 
+### Desktop character rendering (#39)
+- **SwiftUI `Canvas` is expensive to redraw in a small floating window.** With the mascot drawn in a `Canvas`, every re-render (each walk frame, each 4 s blink) allocated about 97 MB of "Owned physical footprint (unmapped) (graphics)" (per `footprint`), released a few seconds later. A background-only MacLens swung between 27 and 125 MB. Drawing the same shapes with Core Graphics in a layer-backed `NSView` (`draw(_:)`) kept it flat at about 23 MB. The SwiftUI speech bubble, rendered once per alert, didn't cause the swing.
+- **`NSWindow.sharingType = .none`** is set on the character's panel as an extra layer. Whether current capture APIs honour it is unverified, so the screen-watcher check above is what hides the character during a share.
+
 ## 4. Proposed extra features (ranked, for your approval)
 
 1. **Menu bar indicator**: thermal state, current watts, and the top offender at a glance. This is the whole point of a "lightweight" monitor.
