@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/amrakshay/maclens/compare/v1.5.0...v1.6.0) (2026-10-12)
+
+
+### Features
+
+* opt-in desktop character that delivers water reminders and alerts ([#42](https://github.com/amrakshay/maclens/issues/42)) ([2a2d992](https://github.com/amrakshay/maclens/commit/2a2d99280603f6be352521e05121ef17e10a1246))
+
 ## [1.5.0](https://github.com/amrakshay/maclens/compare/v1.4.0...v1.5.0) (2026-09-28)
 
 
