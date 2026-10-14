@@ -64,16 +64,21 @@ import MacLensCore
                 renderOffscreen(UpdateBanner().frame(width: 900), model: model, to: dir.appendingPathComponent("update-banner-failed.png"))
                 renderOffscreen(UpdateWindow(), model: model, to: dir.appendingPathComponent("update-window-failed.png"))
             }
-            // About panel (#20): open the standard panel and capture its window.
+            // About window (#20, #46): the real window in both appearances, plus an ImageRenderer copy of its content.
             AboutPanel.show()
-            try? await Task.sleep(for: .seconds(1))
-            if let w = NSApp.windows.first(where: { $0.isVisible && $0.identifier?.rawValue != "main" && !($0.identifier?.rawValue ?? "").hasPrefix("main") && $0.className.contains("Panel") }),
-               let v = w.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
-                v.cacheDisplay(in: v.bounds, to: rep)
-                try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("about.png"))
+            if let w = NSApp.windows.first(where: { $0.identifier?.rawValue == "about" }) {
+                for (name, look) in [("about.png", NSAppearance.Name.aqua), ("about-dark.png", .darkAqua)] {
+                    w.appearance = NSAppearance(named: look)
+                    try? await Task.sleep(for: .seconds(1))
+                    capture(w, to: dir.appendingPathComponent(name))
+                }
+                w.appearance = nil
             }
-            let credits = AboutPanel.credits(installKind: .homebrew(brew: "/opt/homebrew/bin/brew"))
-            renderOffscreen(Text(AttributedString(credits)).frame(width: 420).padding(), model: model, to: dir.appendingPathComponent("about-credits.png"))
+            let about = ImageRenderer(content: AboutView(installKind: .homebrew(brew: "/opt/homebrew/bin/brew")).background(Color(nsColor: .windowBackgroundColor)))
+            about.scale = 2
+            if let img = about.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+                try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("about-content.png"))
+            }
             NSApp.terminate(nil)
         }
     }
@@ -105,8 +110,12 @@ import MacLensCore
     }
 
     static func capture(_ url: URL) {
-        guard let w = NSApp.windows.first(where: { ($0.identifier?.rawValue ?? "").hasPrefix("main") }),
-              let v = w.contentView?.superview ?? w.contentView,
+        guard let w = NSApp.windows.first(where: { ($0.identifier?.rawValue ?? "").hasPrefix("main") }) else { return }
+        capture(w, to: url)
+    }
+
+    static func capture(_ w: NSWindow, to url: URL) {
+        guard let v = w.contentView?.superview ?? w.contentView,
               let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return }
         if let layer = v.layer, let ctx = NSGraphicsContext(bitmapImageRep: rep) {
             layer.render(in: ctx.cgContext) // renders SwiftUI/layer-backed content that cacheDisplay misses
