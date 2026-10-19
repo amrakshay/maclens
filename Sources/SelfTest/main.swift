@@ -232,6 +232,26 @@ if let (proc, key) = try? Caffeinate.start() {
 } else {
     check(false, "caffeinate could not be started")
 }
+// A child that exits without being reaped stays a zombie: it holds no assertion and must not count as keeping the Mac awake.
+var zombiePid: pid_t = 0
+var zargv: [UnsafeMutablePointer<CChar>?] = [strdup("true"), nil]
+if posix_spawn(&zombiePid, "/usr/bin/true", nil, nil, &zargv, nil) == 0 {
+    var zb: ProcBasic?
+    for _ in 0..<50 { zb = ProcList.basic(pid: zombiePid); if zb?.isZombie == true { break }; usleep(20_000) }
+    check(zb?.isZombie == true, "exited, unreaped child (PID \(zombiePid)) is reported as a zombie")
+    var live = ProcSample(pid: 1, ppid: 1, uid: getuid(), user: "", name: "caffeinate", path: Caffeinate.path, startDate: Date(), isOwn: true)
+    var dead = live
+    dead.pid = 2; dead.isZombie = true
+    check(Caffeinate.live(in: [live, dead]).map(\.pid) == [1], "zombie caffeinate is not listed as keeping the Mac awake")
+    live.isOwn = false
+    check(Caffeinate.live(in: [live]).isEmpty, "other users' caffeinate is not listed")
+    var status: Int32 = 0
+    waitpid(zombiePid, &status, 0)
+    check(ProcList.basic(pid: zombiePid) == nil, "zombie gone once reaped")
+} else {
+    check(false, "couldn't spawn a child to test zombie detection")
+}
+free(zargv[0])
 
 // MARK: - Ports
 section("Ports")

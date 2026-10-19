@@ -29,7 +29,7 @@ struct CaffeinateInstance: Identifiable, Equatable {
 
     /// Called on every sample with the full process list (works while the window is closed too).
     func update(from processes: [ProcSample]) {
-        let mine = processes.filter { $0.path == Caffeinate.path && $0.isOwn }
+        let mine = Caffeinate.live(in: processes)
         let tags = ours
         let now = mine.map { p -> CaffeinateInstance in
             let args = argsCache[p.key] ?? {

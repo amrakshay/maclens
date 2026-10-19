@@ -101,7 +101,7 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
   - Power, CPU, memory and CPU temperature also have a sparkline.
 - **Sleep control:**
   - **Prevent sleep** runs `/usr/bin/caffeinate -d`, so the display and system stay awake.
-  - The bar then shows every running `caffeinate`, with its arguments, PID, start time, and whether MacLens or something else started it.
+  - The bar then shows every running `caffeinate`, with its arguments, PID, start time, and whether MacLens or something else started it. Exited `caffeinate` processes that their parent hasn't reaped yet (zombies) are ignored, since they can't keep the Mac awake.
   - **Allow sleep** stops them so macOS sleeps on its normal schedule. It asks first if one was started outside MacLens.
   - The `caffeinate` process is independent of MacLens: it keeps running if you quit, and MacLens picks it up again on relaunch.
   - A coffee cup appears in the menu bar while it's active, and the menu has the same toggle.
