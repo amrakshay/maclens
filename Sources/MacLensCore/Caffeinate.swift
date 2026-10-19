@@ -24,6 +24,12 @@ public enum Caffeinate {
         return (p, ProcKey(pid: pid, start: start))
     }
 
+    /// The caffeinate processes that can be keeping the Mac awake: the current user's, excluding zombies
+    /// (exited but not reaped by their parent, so they hold no assertion and ignore SIGTERM).
+    public static func live(in processes: [ProcSample]) -> [ProcSample] {
+        processes.filter { $0.path == path && $0.isOwn && !$0.isZombie }
+    }
+
     /// Stops one caffeinate instance with SIGTERM. Returns an error message or nil.
     public static func stop(_ key: ProcKey) -> String? {
         ProcessControl.send(.terminate, to: key, name: "caffeinate", systemReasons: [], confirmedWarning: true)

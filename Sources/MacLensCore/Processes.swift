@@ -14,6 +14,8 @@ public struct ProcBasic: Sendable {
     public let uid: uid_t
     public let comm: String
     public let start: Int64
+    /// Exited but not yet reaped by its parent (`<defunct>` in ps). It holds no resources, assertions or ports.
+    public var isZombie = false
     public var key: ProcKey { ProcKey(pid: pid, start: start) }
     public var startDate: Date { Date(timeIntervalSince1970: Double(start) / 1e6) }
 }
@@ -77,7 +79,8 @@ public enum ProcList {
         }
         let st = kp.kp_proc.p_starttime
         return ProcBasic(pid: kp.kp_proc.p_pid, ppid: kp.kp_eproc.e_ppid, uid: kp.kp_eproc.e_ucred.cr_uid,
-                         comm: comm, start: Int64(st.tv_sec) * 1_000_000 + Int64(st.tv_usec))
+                         comm: comm, start: Int64(st.tv_sec) * 1_000_000 + Int64(st.tv_usec),
+                         isZombie: kp.kp_proc.p_stat == SZOMB)
     }
 }
 
@@ -92,6 +95,7 @@ public struct ProcSample: Identifiable, Sendable, Equatable {
     public var startDate: Date
     public var key: ProcKey
     public var isOwn: Bool
+    public var isZombie = false
     /// Percent of one core. -1 = unknown.
     public var cpu: Double = -1
     /// Bytes. Footprint for own processes, RSS for others. -1 = unknown.
@@ -185,6 +189,7 @@ public final class ProcessSampler {
             let user = UserNames.shared.name(b.uid)
             var s = ProcSample(pid: b.pid, ppid: b.ppid, uid: b.uid, user: user, name: name, path: path,
                                startDate: b.startDate, key: key, isOwn: b.uid == myUid)
+            s.isZombie = b.isZombie
 
             if b.uid == myUid, let ri = Self.rusage(b.pid) {
                 let cpuNs = Double(ri.ri_user_time &+ ri.ri_system_time) * machTicksToNs

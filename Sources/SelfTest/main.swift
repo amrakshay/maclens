@@ -128,8 +128,19 @@ let me = procs.first { $0.pid == getpid() }
 check(me != nil && me!.cpu > 0 && me!.memory > 0 && me!.memoryIsFootprint, "own process: cpu \(me?.cpu ?? -1)%, footprint \(me?.memory ?? -1) B, energy \(me?.energyW ?? -1) W")
 let foreign = procs.filter { !$0.isOwn && $0.memory > 0 }
 check(foreign.count > 5, "foreign processes get RSS/CPU via ps (\(foreign.count))")
+// Two light samples back to back: the second lands within the sampler's 0.2 s window and repeats the first's rates.
+// (Measured from a light sample, not the one above: that one runs ps, which can take longer than 0.2 s on CI.)
+// Wait out the window first so `first` records a fresh baseline instead of repeating the previous sample's.
+usleep(250_000)
+let t0 = Date()
+let first = sampler.sample(includeForeign: false).first { $0.pid == getpid() }
 let again = sampler.sample(includeForeign: false).first { $0.pid == getpid() }
-check((again?.cpu ?? -1) >= 0 && again?.cpu == me?.cpu, "a sample right after another repeats the last CPU instead of unknown (\(again?.cpu ?? -1)%)")
+let gap = Date().timeIntervalSince(t0)
+if gap < 0.15 {
+    check((again?.cpu ?? -1) >= 0 && again?.cpu == first?.cpu, "a sample right after another repeats the last CPU instead of unknown (\(again?.cpu ?? -1)%)")
+} else {
+    print("  - skipped repeat-CPU check: two samples took \(String(format: "%.2f", gap)) s, too slow to land inside the 0.2 s window")
+}
 let ws = procs.first { $0.name == "WindowServer" }
 hardwareCheck(ws?.isSystem == true, "WindowServer classified system: \(ws?.systemReasons ?? [])")
 check(procs.first { $0.pid == getpid() }?.isSystem == false, "this test binary is not system")
@@ -232,6 +243,26 @@ if let (proc, key) = try? Caffeinate.start() {
 } else {
     check(false, "caffeinate could not be started")
 }
+// A child that exits without being reaped stays a zombie: it holds no assertion and must not count as keeping the Mac awake.
+var zombiePid: pid_t = 0
+var zargv: [UnsafeMutablePointer<CChar>?] = [strdup("true"), nil]
+if posix_spawn(&zombiePid, "/usr/bin/true", nil, nil, &zargv, nil) == 0 {
+    var zb: ProcBasic?
+    for _ in 0..<50 { zb = ProcList.basic(pid: zombiePid); if zb?.isZombie == true { break }; usleep(20_000) }
+    check(zb?.isZombie == true, "exited, unreaped child (PID \(zombiePid)) is reported as a zombie")
+    var live = ProcSample(pid: 1, ppid: 1, uid: getuid(), user: "", name: "caffeinate", path: Caffeinate.path, startDate: Date(), isOwn: true)
+    var dead = live
+    dead.pid = 2; dead.isZombie = true
+    check(Caffeinate.live(in: [live, dead]).map(\.pid) == [1], "zombie caffeinate is not listed as keeping the Mac awake")
+    live.isOwn = false
+    check(Caffeinate.live(in: [live]).isEmpty, "other users' caffeinate is not listed")
+    var status: Int32 = 0
+    waitpid(zombiePid, &status, 0)
+    check(ProcList.basic(pid: zombiePid) == nil, "zombie gone once reaped")
+} else {
+    check(false, "couldn't spawn a child to test zombie detection")
+}
+free(zargv[0])
 
 // MARK: - Ports
 section("Ports")
