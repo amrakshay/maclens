@@ -130,6 +130,8 @@ let foreign = procs.filter { !$0.isOwn && $0.memory > 0 }
 check(foreign.count > 5, "foreign processes get RSS/CPU via ps (\(foreign.count))")
 // Two light samples back to back: the second lands within the sampler's 0.2 s window and repeats the first's rates.
 // (Measured from a light sample, not the one above: that one runs ps, which can take longer than 0.2 s on CI.)
+// Wait out the window first so `first` records a fresh baseline instead of repeating the previous sample's.
+usleep(250_000)
 let t0 = Date()
 let first = sampler.sample(includeForeign: false).first { $0.pid == getpid() }
 let again = sampler.sample(includeForeign: false).first { $0.pid == getpid() }
