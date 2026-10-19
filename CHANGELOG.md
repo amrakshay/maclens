@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.0](https://github.com/amrakshay/maclens/compare/v1.6.0...v1.7.0) (2026-10-19)
+
+
+### Features
+
+* redesign the About window (refined classic layout) ([#47](https://github.com/amrakshay/maclens/issues/47)) ([8fd22ca](https://github.com/amrakshay/maclens/commit/8fd22ca1089b9383683c873da04d98c96c8feee5)), closes [#46](https://github.com/amrakshay/maclens/issues/46)
+
+
+### Bug Fixes
+
+* ignore zombie caffeinate processes in the sleep control ([#49](https://github.com/amrakshay/maclens/issues/49)) ([836c113](https://github.com/amrakshay/maclens/commit/836c113319b1e2fc44ebdf5d909d6b33fafb2e2c))
+
 ## [1.6.0](https://github.com/amrakshay/maclens/compare/v1.5.0...v1.6.0) (2026-10-12)
 
 
