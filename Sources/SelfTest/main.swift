@@ -128,8 +128,17 @@ let me = procs.first { $0.pid == getpid() }
 check(me != nil && me!.cpu > 0 && me!.memory > 0 && me!.memoryIsFootprint, "own process: cpu \(me?.cpu ?? -1)%, footprint \(me?.memory ?? -1) B, energy \(me?.energyW ?? -1) W")
 let foreign = procs.filter { !$0.isOwn && $0.memory > 0 }
 check(foreign.count > 5, "foreign processes get RSS/CPU via ps (\(foreign.count))")
+// Two light samples back to back: the second lands within the sampler's 0.2 s window and repeats the first's rates.
+// (Measured from a light sample, not the one above: that one runs ps, which can take longer than 0.2 s on CI.)
+let t0 = Date()
+let first = sampler.sample(includeForeign: false).first { $0.pid == getpid() }
 let again = sampler.sample(includeForeign: false).first { $0.pid == getpid() }
-check((again?.cpu ?? -1) >= 0 && again?.cpu == me?.cpu, "a sample right after another repeats the last CPU instead of unknown (\(again?.cpu ?? -1)%)")
+let gap = Date().timeIntervalSince(t0)
+if gap < 0.15 {
+    check((again?.cpu ?? -1) >= 0 && again?.cpu == first?.cpu, "a sample right after another repeats the last CPU instead of unknown (\(again?.cpu ?? -1)%)")
+} else {
+    print("  - skipped repeat-CPU check: two samples took \(String(format: "%.2f", gap)) s, too slow to land inside the 0.2 s window")
+}
 let ws = procs.first { $0.name == "WindowServer" }
 hardwareCheck(ws?.isSystem == true, "WindowServer classified system: \(ws?.systemReasons ?? [])")
 check(procs.first { $0.pid == getpid() }?.isSystem == false, "this test binary is not system")
