@@ -185,7 +185,8 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
 - Full Disk Access has to be re-enabled after an update, because each release is ad-hoc signed.
 
 **About MacLens** (app menu, menu bar menu, Settings)
-- What MacLens is, the author, the MIT license, links (GitHub, What's new, Report an issue, License), how it was installed, and a privacy note (no telemetry; one daily update check).
+- A compact window: icon, version (click it to copy), what MacLens is, the author, and buttons for GitHub, What's New and Report an Issue.
+- The footer shows how it was installed, the privacy note (no telemetry; one daily update check) and the MIT license. It follows light and dark mode, and Escape closes it.
 - The app menu also has **Check for Updates…**.
 
 **Settings**
