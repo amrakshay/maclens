@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.0](https://github.com/amrakshay/maclens/compare/v1.7.0...v1.8.0) (2026-11-02)
+
+
+### Features
+
+* Docker tab to see and clean images, containers, volumes and build cache ([#52](https://github.com/amrakshay/maclens/issues/52)) ([ebe1b86](https://github.com/amrakshay/maclens/commit/ebe1b86b126bbc60e528abb5d632a03bf788e435))
+
+
+### Bug Fixes
+
+* upgrade the cask by its full name so Homebrew tap trust doesn't block updates ([#54](https://github.com/amrakshay/maclens/issues/54)) ([efc2249](https://github.com/amrakshay/maclens/commit/efc2249448b453c350c4336697660511a321c3ba))
+
 ## [1.7.0](https://github.com/amrakshay/maclens/compare/v1.6.0...v1.7.0) (2026-10-19)
 
 
