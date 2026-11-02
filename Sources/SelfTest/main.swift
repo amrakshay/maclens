@@ -386,6 +386,11 @@ do {
     check(Updater.installKind(bundlePath: PathUtil.join(T, "apps/MacLens.app"), caskrooms: [PathUtil.join(T, "nope")], brews: []) == .direct,
           "direct download in a writable folder is updated in place")
 
+    check(Updater.brewUpgradeArguments == ["upgrade", "--cask", "amrakshay/tap/maclens"],
+          "brew upgrade names the cask in full, so Homebrew 6+ trusts it instead of refusing the tap (#53)")
+    let refused = "Error: Refusing to load cask amrakshay/tap/maclens from untrusted tap amrakshay/tap.\nRun `brew trust --cask amrakshay/tap/maclens` or `brew trust amrakshay/tap` to trust it."
+    check(Updater.tapTrustMessage(refused)?.contains("brew trust --cask amrakshay/tap/maclens") == true
+          && Updater.tapTrustMessage("Error: Download failed on Cask 'maclens'") == nil, "a tap-trust refusal is explained with the exact brew trust command")
     check(Updater.parseChecksumFile("A1B2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90  MacLens-1.2.0.zip") == "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
           && Updater.parseChecksumFile("nonsense") == nil, "checksum file parsed; garbage rejected")
 
@@ -469,7 +474,7 @@ do {
     check(brewErr == nil && brewV == "9.1.0" && !Updater.isQuarantined(brewApp),
           "Homebrew path: upgraded app verified and quarantine cleared (\(brewErr?.localizedDescription ?? "ok"))")
     let calls = (try? String(contentsOfFile: brewLog, encoding: .utf8)) ?? ""
-    check(calls.hasPrefix("update") && calls.contains("upgrade --cask maclens NO_AUTO_UPDATE=1"),
+    check(calls.hasPrefix("update") && calls.contains("upgrade --cask amrakshay/tap/maclens NO_AUTO_UPDATE=1"),
           "Homebrew path: taps refreshed with `brew update` before upgrading (#17): \(calls.split(separator: "\n").map(String.init))")
     let fakeBrewNoop = PathUtil.join(T, "upd/brew/brew-noop")
     try! "#!/bin/sh\nexit 0\n".write(toFile: fakeBrewNoop, atomically: true, encoding: .utf8); chmod(fakeBrewNoop, 0o755)
@@ -477,6 +482,21 @@ do {
     Task { do { try await Updater.installHomebrew(brew: fakeBrewNoop, appPath: brewApp.path, currentVersion: v("9.1.0")) { _ in } } catch { noopErr = error }; done.signal() }
     done.wait()
     check(noopErr != nil, "Homebrew path: brew that installs nothing newer is reported as a failure")
+    // Homebrew 6+ refusing an untrusted tap (#53): the error leads with what to run.
+    let fakeBrewUntrusted = PathUtil.join(T, "upd/brew/brew-untrusted")
+    try! """
+    #!/bin/sh
+    [ "$1" = update ] && exit 0
+    echo "Error: Refusing to load cask amrakshay/tap/maclens from untrusted tap amrakshay/tap." >&2
+    exit 1
+
+    """.write(toFile: fakeBrewUntrusted, atomically: true, encoding: .utf8); chmod(fakeBrewUntrusted, 0o755)
+    nonisolated(unsafe) var trustErr: Error?
+    Task { do { try await Updater.installHomebrew(brew: fakeBrewUntrusted, appPath: brewApp.path, currentVersion: v("9.1.0")) { _ in } } catch { trustErr = error }; done.signal() }
+    done.wait()
+    check(trustErr?.localizedDescription.hasPrefix("Homebrew won't load the MacLens cask") == true
+          && trustErr?.localizedDescription.contains("brew trust --cask amrakshay/tap/maclens") == true,
+          "Homebrew path: an untrusted-tap refusal tells the user the exact brew trust command")
 
     let badSha = URL(fileURLWithPath: PathUtil.join(T, "upd/bad.sha256"))
     try! "\(String(repeating: "0", count: 64))  MacLens-9.0.0.zip\n".write(to: badSha, atomically: true, encoding: .utf8)

@@ -91,7 +91,8 @@ Other flags:
   - Homebrew sets `com.apple.quarantine` on installs and upgrades (5.0+ has no `--no-quarantine`).
   - `URLSession` downloads aren't quarantined.
   - The updater clears the flag only after `verifyBundle` passes. Keep that ordering.
-- **Homebrew auto-update:** brew refreshes taps only every `HOMEBREW_AUTO_UPDATE_SECS` (default 24 h), so the updater runs `brew update` itself, then `brew upgrade --cask maclens` with `HOMEBREW_NO_AUTO_UPDATE=1` (#17).
+- **Homebrew auto-update:** brew refreshes taps only every `HOMEBREW_AUTO_UPDATE_SECS` (default 24 h), so the updater runs `brew update` itself, then `brew upgrade --cask amrakshay/tap/maclens` with `HOMEBREW_NO_AUTO_UPDATE=1` (#17).
+- **Homebrew tap trust (6.0+):** casks from third-party taps load only once trusted, and the short name fails with "untrusted tap". `brew install`/`brew upgrade` with the fully qualified name trusts that one cask, so always use `amrakshay/tap/maclens` (#53). `brew update` fetches untrusted taps anyway.
 - **Signing:** TCC (Full Disk Access) grants are tied to the code signature, so ad-hoc builds lose FDA on every rebuild.
 
 ## Workflow (mandatory)
