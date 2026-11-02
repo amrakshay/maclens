@@ -4,6 +4,7 @@ import MacLensCore
 
 struct StorageView: View {
     @EnvironmentObject var disk: DiskStore
+    @EnvironmentObject var model: AppModel
     @State private var selection: DiskItem.ID?
     @State private var sortOrder = [KeyPathComparator(\PositionRow<DiskItem>.item.alloc, order: .reverse)]
     @State private var confirmTrash: DiskItem?
@@ -76,6 +77,9 @@ struct StorageView: View {
                             Text(item.name).lineLimit(1)
                             if item.unreadable { Image(systemName: "lock.fill").foregroundStyle(.orange).help("Couldn't read this folder (permission / Full Disk Access)") }
                             if item.hardlinked { Image(systemName: "link").foregroundStyle(.secondary).help("Hard link — its bytes are shared with another path") }
+                            if let l = DockerVM.label(forPath: item.path) {
+                                Text("Docker VM disk").font(.caption).foregroundStyle(.secondary).help(l + ". The Docker tab shows what's inside.")
+                            }
                         }
                     }.width(min: 220, ideal: 340)
                     TableColumn("Size", value: \.item.alloc) { r in
@@ -93,6 +97,7 @@ struct StorageView: View {
                 .contextMenu(forSelectionType: Int.self) { positions in
                     if let item = rows.items(at: positions).first {
                         Button("Reveal in Finder") { reveal(item) }
+                        if DockerVM.label(forPath: item.path) != nil { Button("Show in Docker Tab") { model.tab = .docker } }
                         if item.isDirectory { Button("Open") { disk.open(item.treeIndex) } }
                     }
                 } primaryAction: { positions in

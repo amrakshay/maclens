@@ -179,6 +179,16 @@ The app shows **Last activity = max(project file mtime, git activity, artifact m
   - Notarization isn't needed for your own machine.
 - **Optional privileged helper:** would give exact CPU/memory/energy for foreign processes (and `powermetrics`). Not needed for v1; can be deferred without affecting anything else.
 
+### Docker disk usage (#51)
+- **Docker Desktop keeps everything in one sparse file**, `~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw`. On one Mac (Docker Desktop 4.86, engine 29.7.2) it read 494 GB apparent and 47.6 GB allocated (`st_blocks × 512`). The apparent size is the configured disk limit. Only the allocated size says what Docker costs.
+- **The Engine API answers without root** on the user's socket (`~/.docker/run/docker.sock`; also OrbStack, Colima and Rancher Desktop sockets). `GET /system/df` returns images, containers (with `Mounts` and labels), volumes (with `UsageData.RefCount` and `Size`) and build-cache records in one call, about 0.6–0.9 s with 41 images and 110 volumes. Responses are chunked HTTP/1.1. `URLSession` can't talk to a unix socket, so the core has a small socket client.
+- **`docker ps` hides Docker Desktop extension containers**, but `/system/df` includes them (13 vs 12 here). Counts are taken from `/system/df`.
+- **"Reclaimable" in `docker system df` is misleading for volumes.** It counts every volume with no *running* container. On the test Mac that was 21.9 of 22 GB, including 23 named compose volumes holding Postgres, MySQL and ClickHouse data. `RefCount` counts containers in any state; MacLens treats a volume as unused only when no container at all references it, and named volumes as "may hold data".
+- **Anonymous volumes** carry the `com.docker.volume.anonymous` label on current engines; older ones are recognised by their 64-hex-digit name.
+- **Image sizes:** freeing an image releases about `Size − SharedSize`. Some multi-platform index images report `SharedSize > Size` (Docker prints a negative unique size), so MacLens shows "unknown" there instead of a negative or zero.
+- **Deleting an image with several tags by ID** needs `force`, so MacLens untags each tag; the last untag deletes it.
+- **Getting the space back in macOS:** Docker Desktop is expected to return freed blocks to the sparse file (TRIM/discard), but when and how fully is unverified, so MacLens re-measures the file after a clean-up rather than claiming the space.
+
 ### Screen sharing, idle and lock (water reminders, #28)
 - **Screen being shared or captured:** `SLSIsScreenWatcherPresent()` in the private SkyLight framework, resolved with `dlsym`. No permission is needed. On macOS 26.6.1 it read `no` → `YES` while sharing in Zoom → `no` when sharing stopped, and stayed `no` in a Zoom meeting without sharing. It's private, so MacLens treats a missing symbol as "unknown" and never as "sharing". Slack, Teams, Meet, recording and mirroring are being checked in #29.
 - **What didn't work:**

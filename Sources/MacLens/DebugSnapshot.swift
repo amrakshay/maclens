@@ -28,6 +28,12 @@ import MacLensCore
                 if tab == .heat { renderOffscreen(HeatContent(), model: model, to: dir.appendingPathComponent("heat-content.png")) }
                 if tab == .dashboard { renderOffscreen(DashboardContent(), model: model, to: dir.appendingPathComponent("dashboard-content.png")) }
             }
+            // Docker clean-up confirmation (#51): the project with named volumes that frees the most, as if chosen.
+            let plans = model.docker.projects.map { DockerProjects.plan($0, items: model.docker.items) }
+            if let plan = plans.filter({ $0.remove.contains(where: \.isNamedVolume) }).max(by: { $0.size < $1.size }) ?? plans.first {
+                renderOffscreen(DockerConfirmSheet(confirm: DockerConfirm(title: "Clean up project \(plan.project)?", items: plan.remove, kept: plan.keep, project: true),
+                                                   onConfirm: { _ in }, onCancel: {}), model: model, to: dir.appendingPathComponent("docker-confirm.png"))
+            }
             // Processes grouped by application (#34).
             model.settings.groupProcessesByApp = true
             model.tab = .processes
@@ -101,7 +107,7 @@ import MacLensCore
     static func renderOffscreen<V: View>(_ view: V, model: AppModel, to url: URL) {
         let r = ImageRenderer(content: view.frame(width: 1000)
             .environmentObject(model).environmentObject(model.settings).environmentObject(model.monitor)
-            .environmentObject(model.history).environmentObject(model.ports).environmentObject(model.artifacts).environmentObject(model.sleep).environmentObject(model.updates).environmentObject(model.services).environmentObject(model.water)
+            .environmentObject(model.history).environmentObject(model.ports).environmentObject(model.artifacts).environmentObject(model.docker).environmentObject(model.sleep).environmentObject(model.updates).environmentObject(model.services).environmentObject(model.water)
             .background(Color.white))
         r.scale = 2
         if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
