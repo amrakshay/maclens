@@ -23,6 +23,10 @@ import MacLensCore
     @Published private(set) var vmDisk: DockerVMDisk?
     @Published private(set) var loadedAt: Date?
     @Published private(set) var deleting = false
+    /// While deleting: how far along, and which item. Docker can take seconds per image, so this is always shown.
+    @Published private(set) var progress: DockerDeleteProgress?
+    @Published private(set) var cancelling = false
+    private let cancelFlag = CancelFlag()
     @Published var report: CleanupReport?
     @Published var groups: Set<DockerGroup> = Set(DockerGroup.allCases)
     @Published var project: String?
@@ -88,15 +92,22 @@ import MacLensCore
     }
 
     func delete(_ targets: [DockerItem], allowData: Bool, completion: @escaping () -> Void) {
-        guard let ep = endpoint, !targets.isEmpty else { return }
+        guard let ep = endpoint, !targets.isEmpty, !deleting else { return }
         deleting = true
+        cancelling = false
+        cancelFlag.set(false)
+        progress = DockerDeleteProgress(done: 0, total: targets.count, step: "Starting", current: "")
         let before = vmDisk?.allocated
         let runtime = ep.runtime
+        let flag = cancelFlag
         DispatchQueue.global(qos: .userInitiated).async {
-            let outcomes = DockerCleaner.delete(targets, allowData: allowData, endpoint: ep)
+            let outcomes = DockerCleaner.delete(targets, allowData: allowData, endpoint: ep,
+                                                progress: { p in DispatchQueue.main.async { if self.deleting { self.progress = p } } },
+                                                isCancelled: { flag.get() })
             let after = DockerVM.disk(runtime: runtime)?.allocated
             DispatchQueue.main.async {
                 self.deleting = false
+                self.progress = nil
                 let ok = outcomes.filter { $0.error == nil }
                 self.report = CleanupReport(deleted: ok.count,
                                             failures: outcomes.compactMap { o in o.error.map { (o.item.name, $0) } },
@@ -108,6 +119,15 @@ import MacLensCore
         }
     }
 
+    /// Stops after the item being deleted now; Docker can't interrupt a single delete.
+    func cancelDelete() {
+        cancelFlag.set(true)
+        cancelling = true
+    }
+
+    /// For the snapshot of the progress panel only.
+    func previewProgress(_ p: DockerDeleteProgress?) { progress = p; deleting = p != nil }
+
     /// The runtime hands freed blocks back to macOS asynchronously, so the VM disk is measured again a few times.
     private func remeasure(after delays: [Double]) {
         for d in delays {
@@ -118,6 +138,13 @@ import MacLensCore
             }
         }
     }
+}
+
+final class CancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func get() -> Bool { lock.lock(); defer { lock.unlock() }; return value }
+    func set(_ v: Bool) { lock.lock(); value = v; lock.unlock() }
 }
 
 extension DockerItem {
@@ -158,7 +185,8 @@ struct DockerView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if let r = store.report { reportBanner(r) }
+            if let p = store.progress { DockerProgressPanel(progress: p) }
+            else if let r = store.report { reportBanner(r) }
             switch store.state {
             case .notRunning:
                 ContentUnavailableView {
@@ -199,8 +227,7 @@ struct DockerView: View {
                         .help("\(d.path)\nThe file's nominal size, \(Fmt.bytes(d.apparent)), is the disk limit, not usage: the file is sparse.")
                 }
                 Spacer(minLength: 0)
-                if store.deleting { ProgressView().controlSize(.small); Text("Deleting…") }
-                else if store.state == .loading || (store.state == .ready && store.loadedAt == nil) { ProgressView().controlSize(.small) }
+                if store.state == .loading || (store.state == .ready && store.loadedAt == nil) { ProgressView().controlSize(.small) }
                 if let t = store.loadedAt { Text(Date().timeIntervalSince(t) < 60 ? "Updated just now" : "Updated \(Fmt.relative(t))").font(.callout).foregroundStyle(.secondary) }
                 Button("Refresh") { store.refresh() }.keyboardShortcut("r").disabled(store.deleting)
             }
@@ -266,7 +293,7 @@ struct DockerView: View {
             TableColumn("Size", value: \.item.size) { Text(Fmt.bytes($0.item.size)).monospacedDigit() }.width(80)
             TableColumn("Frees", value: \.item.frees) { r in
                 Text(r.item.frees < 0 ? "—" : "~" + Fmt.bytes(r.item.frees)).monospacedDigit()
-                    .help("Estimated space freed inside Docker's disk. Image layers shared with other images aren't counted. macOS gets it back only when Docker returns it.")
+                    .help("Estimated space freed inside Docker's disk. Image layers shared with other images aren't counted. macOS gets back only what Docker returns: in one test about two-thirds, within 30 s. MacLens measures it after a clean-up.")
             }.width(85)
             TableColumn("Project", value: \.item.projectSort) { Text($0.item.project ?? "").lineLimit(1) }.width(min: 80, ideal: 130)
             TableColumn("Created / used", value: \.item.createdSort) { r in
@@ -428,6 +455,35 @@ struct DockerConfirmSheet: View {
     }
 }
 
+/// Shown while Docker items are being deleted: a determinate bar, the item in progress, and Cancel.
+struct DockerProgressPanel: View {
+    @EnvironmentObject var store: DockerStore
+    let progress: DockerDeleteProgress
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(progress.current.isEmpty ? progress.step + "…" : "\(progress.step) \(progress.current)")
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Text("\(progress.done) of \(progress.total)").monospacedDigit().foregroundStyle(.secondary)
+                Button(store.cancelling ? "Stopping…" : "Stop") { store.cancelDelete() }
+                    .disabled(store.cancelling)
+                    .help("Stops after the item being deleted now. Items already deleted stay deleted.")
+            }
+            ProgressView(value: progress.fraction)
+            Text(store.cancelling ? "Finishing the current item, then stopping." :
+                 "Docker can take several seconds per image. You can keep using MacLens; this continues in the background.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .font(.callout)
+        .padding(10)
+        .background(.quaternary.opacity(0.5))
+        .overlay(alignment: .bottom) { Divider() }
+    }
+}
+
 /// One line in Developer Artifacts pointing at the Docker tab (#51). Only stats the VM disk file; doesn't ask Docker.
 struct DockerSummaryRow: View {
     @EnvironmentObject var docker: DockerStore
@@ -439,6 +495,10 @@ struct DockerSummaryRow: View {
                 Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary)
                 Text("Docker: \(Fmt.bytes(d.allocated)) on disk (\(d.runtime) VM)" +
                      (docker.state == .ready ? " · ~\(Fmt.bytes(docker.reclaimableWithoutData)) reclaimable" : ""))
+                if let p = docker.progress {
+                    ProgressView(value: p.fraction).frame(width: 90)
+                    Text("cleaning up \(p.done)/\(p.total)").foregroundStyle(.secondary).monospacedDigit()
+                }
                 Spacer()
                 Button("Open Docker →") { model.tab = .docker }.buttonStyle(.link)
             }

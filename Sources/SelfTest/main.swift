@@ -817,6 +817,16 @@ do {
     let pruned = DockerCleaner.delete([bc!], allowData: false, endpoint: ep)
     check(pruned[0].error?.contains("SANDBOX") == true && !fake.requests.contains { $0.hasPrefix("POST /build/prune") },
           "build cache prune can't be fenced to test items, so the sandbox refuses it")
+    var steps: [DockerDeleteProgress] = []
+    let two = DockerCleaner.delete([item("image:sha256:dangle")!, item("image:sha256:old")!], allowData: false, endpoint: ep) { steps.append($0) }
+    check(two.allSatisfy { $0.error == nil } && steps.first?.step == "Checking with Docker" && steps.last == DockerDeleteProgress(done: 2, total: 2, step: "Done", current: ""),
+          "progress: checks with Docker, then counts up to done")
+    check(steps.filter { $0.step == "Deleting" }.map(\.done) == [0, 1] && steps.contains { $0.current == "old:1" }, "progress names each item as it's deleted")
+    var started = 0
+    let stopped = DockerCleaner.delete([item("image:sha256:index")!, item("volume:scratch")!], allowData: false, endpoint: ep,
+                                       progress: { if $0.step == "Deleting" { started += 1 } }, isCancelled: { started >= 1 })
+    check(stopped[0].error == nil && stopped[1].error == "Cancelled." && fake.volumes.contains { $0["Name"] as? String == "scratch" },
+          "Stop finishes the current item and skips the rest")
     fake.stop()
     check((try? DockerAPI.request(ep, "GET", "/_ping", timeout: 2)) == nil, "a stopped runtime reads as not running")
 

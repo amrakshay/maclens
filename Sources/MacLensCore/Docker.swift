@@ -282,6 +282,16 @@ public enum DockerProjects {
     }
 }
 
+public struct DockerDeleteProgress: Sendable, Equatable {
+    public let done: Int
+    public let total: Int
+    /// "Checking with Docker", "Deleting", "Pruning" or "Done".
+    public let step: String
+    public let current: String
+    public init(done: Int, total: Int, step: String, current: String) { self.done = done; self.total = total; self.step = step; self.current = current }
+    public var fraction: Double { total == 0 ? 1 : Double(done) / Double(total) }
+}
+
 public struct DockerDeleteOutcome: Sendable {
     public let item: DockerItem
     public let error: String?
@@ -313,22 +323,32 @@ public enum DockerCleaner {
 
     /// Deletes containers first, then images, volumes and the build cache, re-reading Docker before each stage so
     /// that images and volumes freed by deleting a project's containers can go in the same run.
-    public static func delete(_ items: [DockerItem], allowData: Bool, endpoint ep: DockerEndpoint) -> [DockerDeleteOutcome] {
+    /// `progress` is called before each step (on the calling thread); `isCancelled` is checked between items, and
+    /// items not reached are reported as cancelled.
+    public static func delete(_ items: [DockerItem], allowData: Bool, endpoint ep: DockerEndpoint,
+                              progress: ((DockerDeleteProgress) -> Void)? = nil,
+                              isCancelled: (() -> Bool)? = nil) -> [DockerDeleteOutcome] {
         var out: [DockerDeleteOutcome] = []
+        let total = items.count
+        func report(_ step: String, _ name: String) { progress?(DockerDeleteProgress(done: out.count, total: total, step: step, current: name)) }
         for stage in [DockerItemKind.container, .image, .volume, .buildCache] {
             let wanted = items.filter { $0.kind == stage }
             guard !wanted.isEmpty else { continue }
+            if isCancelled?() == true { out += wanted.map { .init(item: $0, error: "Cancelled.", reclaimed: 0) }; continue }
+            report("Checking with Docker", "")
             let fresh: [String: DockerItem]
             do { fresh = Dictionary(try load(ep).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) } catch {
                 out += wanted.map { DockerDeleteOutcome(item: $0, error: "\(error)", reclaimed: 0) }
                 continue
             }
             for item in wanted {
+                if isCancelled?() == true { out.append(.init(item: item, error: "Cancelled.", reclaimed: 0)); continue }
                 guard let now = fresh[item.id] else { out.append(.init(item: item, error: "No longer exists.", reclaimed: 0)); continue }
                 if item.kind != .buildCache && now.created != item.created {
                     out.append(.init(item: item, error: "Changed since it was listed. Refresh and try again.", reclaimed: 0)); continue
                 }
                 if let why = verdict(now, allowData: allowData).reason { out.append(.init(item: item, error: why, reclaimed: 0)); continue }
+                report(item.kind == .buildCache ? "Pruning" : "Deleting", item.name)
                 do {
                     let freed = try perform(now, ep)
                     out.append(.init(item: item, error: nil, reclaimed: freed))
@@ -337,6 +357,7 @@ public enum DockerCleaner {
                 }
             }
         }
+        report("Done", "")
         return out
     }
 

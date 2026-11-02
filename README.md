@@ -180,6 +180,7 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
 - Columns: group, name, size, estimated space freed (image layers shared with other images aren't counted), compose project, age, details. Filter by group, compose project or text. **Select Safe Items** selects the 🟢 rows in view.
 - **Clean Up Project…** removes an old compose project: its stopped containers first, then the images and volumes only they used. Running containers, and anything another container uses, are kept and listed.
 - **Delete…** asks for confirmation and lists every item. Docker deletions are permanent (no Trash). Named volumes need their own checkbox; without it they are skipped.
+- While items are deleted, a progress bar shows how many are done, which one is in progress, and a **Stop** button. Stop finishes the current item (Docker can't interrupt one delete) and skips the rest. The deletion keeps going if you switch tabs, and the Developer Artifacts summary row shows its progress too.
 - After a clean-up, MacLens shows what Docker freed and re-measures the VM disk file for a few minutes. macOS gets the space back only when the runtime returns it, which can lag, so MacLens reports the measured size rather than assuming it.
 - Developer Artifacts shows a one-line Docker summary (the VM disk size, from a single `stat`) that opens this tab. Storage labels `Docker.raw` as the Docker VM disk.
 

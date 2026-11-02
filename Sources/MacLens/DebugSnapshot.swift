@@ -34,6 +34,10 @@ import MacLensCore
                 renderOffscreen(DockerConfirmSheet(confirm: DockerConfirm(title: "Clean up project \(plan.project)?", items: plan.remove, kept: plan.keep, project: true),
                                                    onConfirm: { _ in }, onCancel: {}), model: model, to: dir.appendingPathComponent("docker-confirm.png"))
             }
+            // The progress panel shown while Docker items are being deleted.
+            model.docker.previewProgress(DockerDeleteProgress(done: 14, total: 40, step: "Deleting", current: "ghcr.io/berriai/litellm:main-latest"))
+            renderOffscreen(DockerProgressPanel(progress: model.docker.progress!).frame(width: 900), model: model, to: dir.appendingPathComponent("docker-progress.png"))
+            model.docker.previewProgress(nil)
             // Processes grouped by application (#34).
             model.settings.groupProcessesByApp = true
             model.tab = .processes
