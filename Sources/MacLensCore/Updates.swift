@@ -234,7 +234,18 @@ public enum Updater {
         }
     }
 
-    /// Homebrew install: `brew upgrade --cask maclens` (brew refreshes its taps first). Afterwards the installed
+    /// The cask by its full name. Homebrew 6+ loads casks from third-party taps only once trusted, and `brew upgrade`
+    /// with a fully qualified name trusts that one cask itself; the short name fails with "untrusted tap" (#53).
+    public static let caskFullName = "amrakshay/tap/maclens"
+    public static let brewUpgradeArguments = ["upgrade", "--cask", caskFullName]
+
+    /// A short explanation when brew refused the cask over tap trust, else nil.
+    public static func tapTrustMessage(_ brewOutput: String) -> String? {
+        guard brewOutput.contains("untrusted tap") || brewOutput.contains("brew trust") else { return nil }
+        return "Homebrew won't load the MacLens cask because its tap isn't trusted. Run `brew trust --cask \(caskFullName)` in Terminal, then try the update again."
+    }
+
+    /// Homebrew install: `brew upgrade --cask amrakshay/tap/maclens` (brew refreshes its taps first). Afterwards the installed
     /// app is verified like a direct download; only then is Homebrew's quarantine flag cleared (#11).
     public static func installHomebrew(brew: String, appPath: String, currentVersion: SemVer, clearQuarantine clearFlag: Bool = true,
                                        progress: @escaping @Sendable (String) -> Void) async throws {
@@ -246,19 +257,19 @@ public enum Updater {
         guard upd.status == 0 else {
             throw UpdateError.install("brew update failed:\n" + upd.output.suffix(800))
         }
-        progress("Running brew upgrade --cask maclens…")
+        progress("Running brew upgrade --cask \(caskFullName)…")
         let out = await Task.detached {
-            run(brew, ["upgrade", "--cask", "maclens"], env: ["HOMEBREW_NO_ENV_HINTS": "1", "HOMEBREW_NO_AUTO_UPDATE": "1"])
+            run(brew, brewUpgradeArguments, env: ["HOMEBREW_NO_ENV_HINTS": "1", "HOMEBREW_NO_AUTO_UPDATE": "1"])
         }.value
         guard out.status == 0 else {
-            throw UpdateError.install("brew upgrade failed:\n" + out.output.suffix(800))
+            throw UpdateError.install((tapTrustMessage(out.output).map { $0 + "\n\n" } ?? "") + "brew upgrade failed:\n" + out.output.suffix(800))
         }
         progress("Verifying the upgraded app…")
         let app = URL(fileURLWithPath: appPath)
         do {
             _ = try verifyBundle(app, newerThan: currentVersion)
         } catch UpdateError.notNewer {
-            throw UpdateError.install("brew finished but the installed app isn't newer. Run `brew update && brew upgrade --cask maclens` in Terminal, then reopen MacLens.")
+            throw UpdateError.install("brew finished but the installed app isn't newer. Run `brew update && brew upgrade --cask \(caskFullName)` in Terminal, then reopen MacLens.")
         }
         if clearFlag { clearQuarantine(app) }
     }

@@ -40,6 +40,7 @@ jobs:
           brew tap-new --no-git maclens/ci                      # throwaway local tap: brew only lints casks inside a tap
           mkdir -p "$(brew --repository maclens/ci)/Casks"
           cp dist/maclens.rb "$(brew --repository maclens/ci)/Casks/maclens.rb"
+          brew trust --cask maclens/ci/maclens                  # Homebrew 7 refuses to load casks from untrusted taps
           brew style --cask maclens/ci/maclens
           brew audit --cask maclens/ci/maclens
       - uses: actions/upload-artifact@v7

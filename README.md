@@ -23,7 +23,7 @@ You need macOS 14 or later on Apple Silicon.
 brew install --cask amrakshay/tap/maclens
 ```
 
-To update: `brew upgrade --cask maclens`.
+Installing by the full name trusts the cask, as Homebrew 6+ requires for third-party taps. To update: `brew upgrade --cask amrakshay/tap/maclens`, or **Update and restart** in the app. If Homebrew says the tap is untrusted, run `brew trust --cask amrakshay/tap/maclens` once.
 
 **Direct download:** get `MacLens-X.Y.Z.zip` from [Releases](https://github.com/amrakshay/maclens/releases/latest), unzip it, and move `MacLens.app` to Applications.
 
@@ -176,7 +176,7 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
 - While an update runs, the banner and menu entry show each step. If it fails, they show the error, with **Details…** (the full, copyable message) and **Try again**.
 - The update window shows the changelog, with **Update and restart**, **Skip this version** and **Later**.
 - **Update and restart** works like this:
-  - Homebrew installs run `brew upgrade --cask maclens`.
+  - Homebrew installs run `brew upgrade --cask amrakshay/tap/maclens`. Naming the cask in full makes Homebrew 6+ trust that one cask, so updates work even for installs made before Homebrew's [tap trust](https://docs.brew.sh/Tap-Trust). If brew still refuses, MacLens shows the `brew trust --cask amrakshay/tap/maclens` command to run.
   - Downloaded copies fetch the release zip and verify its SHA-256, code signature, bundle ID and version. The old copy goes to the Trash, the new one goes in its place, and MacLens relaunches.
   - Development builds just link to the release page.
 - **No Gatekeeper prompt after updates.** Once an update passes verification (this repo's release, SHA-256, code signature, bundle ID, newer version), MacLens clears macOS's quarantine flag on it, so the new version opens without the "Apple could not verify…" prompt. This applies to both update paths, and a toggle in Settings → Updates turns it off. Files that fail verification are never touched.
