@@ -9,6 +9,7 @@ A small native macOS app for developers. It answers:
 - Why is the battery draining?
 - Who owns this port?
 - Which build artifacts can I delete?
+- What is Docker keeping on disk, and what can go?
 - Can I run heavy helper services (like VoiceMode) only when I need them?
 
 It is written in Swift/SwiftUI with no third-party dependencies and needs no root. With the window closed it uses about 0.3% of one CPU core. The reasoning behind the design is in [RESEARCH.md](RESEARCH.md).
@@ -162,6 +163,27 @@ No feature needs root. Settings → Permissions shows whether Full Disk Access i
 - Filter by type, by "not used in N days", or by text. Sort by any column. Totals update with the filter and selection.
 - **Move to Trash…** is the default. **Delete Permanently…** is a separate button. Either one shows a confirmation that lists every path and the total size. Global caches carry a re-download warning.
 
+**Docker**
+- Shows what Docker keeps inside its VM disk: images, containers, volumes and the build cache. Docker Desktop keeps all of it in one sparse file (`Docker.raw`), so a disk scan can't see inside. The header shows that file's real size on disk; its nominal size is only the disk limit.
+- Works with Docker Desktop, OrbStack, Colima and Rancher Desktop. MacLens talks to the Docker Engine API on the local socket (`DOCKER_HOST`, the CLI's current context, then each runtime's usual socket). No `docker` binary, no root and no dependency are needed.
+- Docker is asked only while this tab is open, or when you press **Refresh**. Nothing runs in the background, and MacLens never starts Docker: if it's stopped, the tab says so.
+- Items are grouped by how safe they are to delete:
+
+  | Group | Safety |
+  |---|---|
+  | Dangling images (`<none>`), stopped containers, build cache | 🟢 safe |
+  | Unused images, anonymous volumes no container uses | 🟡 come back when needed (re-pull, rebuild) |
+  | Named volumes no container uses | 🔴 may hold real data, such as databases |
+  | Anything a container uses, running containers | 🔒 can't be deleted |
+
+  Docker itself counts a volume as "reclaimable" as soon as no *running* container uses it, which includes the databases of stopped compose stacks. MacLens doesn't.
+- Columns: group, name, size, estimated space freed (image layers shared with other images aren't counted), compose project, age, details. Filter by group, compose project or text. **Select Safe Items** selects the 🟢 rows in view.
+- **Clean Up Project…** removes an old compose project: its stopped containers first, then the images and volumes only they used. Running containers, and anything another container uses, are kept and listed.
+- **Delete…** asks for confirmation and lists every item. Docker deletions are permanent (no Trash). Named volumes need their own checkbox; without it they are skipped.
+- While items are deleted, a progress bar shows how many are done, which one is in progress, and a **Stop** button. Stop finishes the current item (Docker can't interrupt one delete) and skips the rest. The deletion keeps going if you switch tabs, and the Developer Artifacts summary row shows its progress too.
+- After a clean-up, MacLens shows what Docker freed and re-measures the VM disk file for a few minutes. macOS gets the space back only when the runtime returns it, which can lag, so MacLens reports the measured size rather than assuming it.
+- Developer Artifacts shows a one-line Docker summary (the VM disk size, from a single `stat`) that opens this tab. Storage labels `Docker.raw` as the Docker VM disk.
+
 **Additional Services**
 - Start and stop optional background services on demand, so they use memory and CPU only while you need them. The first one is [VoiceMode](https://github.com/mbailey/voicemode): Whisper (speech-to-text, port 2022), Kokoro (text-to-speech, port 8880) and, if installed, MLX-Audio (port 8890).
 - Each component shows whether it's running, starting, stopped, or its port is taken by another process. Running components also show PID, CPU and memory.
@@ -246,6 +268,14 @@ This lives in `DeletionGuard`/`Deleter` in the core library. Every delete path g
 - Anything not owned by you.
 
 Symlinks are judged by the link's real parent folder, and `/System/Volumes/Data/...` by its firmlinked location. A disabled delete button shows the reason on hover.
+
+### Docker deletion guard
+
+This lives in `DockerCleaner` in the core library, and every Docker delete goes through it:
+- Running containers, and images and volumes any container uses, are refused. Nothing is ever forced, so Docker refuses them too.
+- Named volumes are refused unless the separate confirmation was given.
+- Each item is re-read from Docker right before it's deleted, and skipped if it changed or is now in use. Containers go first, then images, volumes and the build cache, with a fresh read between stages.
+- An image with several tags is deleted by removing each tag, not by forcing.
 
 ## Measured footprint
 

@@ -54,6 +54,27 @@ if let i = args.firstIndex(of: "--scan"), i + 1 < args.count {
     exit(0)
 }
 
+if args.contains("--docker") {
+    // Read-only: finds the Docker socket and prints Docker's space by group. Deletes nothing.
+    guard let ep = DockerAPI.discover() else { print("docker: no running Docker found"); exit(1) }
+    let t0 = Date()
+    let items = try DockerCleaner.load(ep)
+    print(String(format: "docker: %@ at %@, %d items in %.2fs", ep.runtime, ep.socketPath, items.count, Date().timeIntervalSince(t0)))
+    for g in DockerGroup.allCases {
+        let its = items.filter { $0.group == g }
+        guard !its.isEmpty else { continue }
+        print("  \(g.displayName): \(its.count), \(ByteCountFormatter.string(fromByteCount: its.reduce(0) { $0 + max(0, $1.size) }, countStyle: .file)), frees ~\(ByteCountFormatter.string(fromByteCount: its.reduce(0) { $0 + max(0, $1.frees) }, countStyle: .file))")
+    }
+    for p in DockerProjects.names(items) {
+        let plan = DockerProjects.plan(p, items: items)
+        print("  project \(p): remove \(plan.remove.count) (~\(ByteCountFormatter.string(fromByteCount: plan.size, countStyle: .file))), keep \(plan.keep.count)")
+    }
+    if let d = DockerVM.disk(runtime: ep.runtime) {
+        print("  VM disk \(d.path): \(ByteCountFormatter.string(fromByteCount: d.allocated, countStyle: .file)) allocated of \(ByteCountFormatter.string(fromByteCount: d.apparent, countStyle: .file))")
+    }
+    exit(0)
+}
+
 if let i = args.firstIndex(of: "--artifacts"), i + 1 < args.count {
     // Read-only: finds and sizes developer artifacts under PATH, prints a summary. Deletes nothing.
     guard let r = ArtifactScanner().scan(roots: [args[i + 1]], previous: nil) else { exit(1) }
@@ -86,6 +107,7 @@ try! fm.createDirectory(at: base, withIntermediateDirectories: true)
 let T = base.path
 setenv("MACLENS_DELETE_SANDBOX", T, 1)
 setenv("MACLENS_CACHE_DIR", PathUtil.join(T, "cache"), 1) // keep test caches out of the app's real cache
+setenv("MACLENS_DOCKER_SANDBOX", "dev.maclens.selftest", 1) // DockerCleaner deletes only items carrying this label
 print("test dir: \(T)")
 
 func write(_ rel: String, bytes: Int = 0) {
@@ -630,6 +652,232 @@ do {
     check(q.tick(sharing: false, paused: false, away: false, isValid: all) == .show(alert(.update)), "then the next queued alert")
     _ = q.dismiss()
     check(q.isIdle, "idle once everything is dismissed")
+}
+
+// MARK: - Docker (#51)
+section("Docker")
+do {
+    // A fake Docker Engine on a unix socket: CI has no Docker, and this exercises the real client, the chunked
+    // HTTP parser, the stage order and the per-stage re-read without touching any real Docker.
+    final class FakeDocker: @unchecked Sendable {
+        let path: String
+        private var fd: Int32 = -1
+        private let lock = NSLock()
+        private var _requests: [String] = []
+        var requests: [String] { lock.lock(); defer { lock.unlock() }; return _requests }
+        var containers: [[String: Any]] = []
+        var images: [[String: Any]] = []
+        var volumes: [[String: Any]] = []
+        var cache: [[String: Any]] = []
+
+        init(path: String) {
+            self.path = path
+            unlink(path)
+            fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            var addr = sockaddr_un()
+            addr.sun_family = sa_family_t(AF_UNIX)
+            let b = Array(path.utf8)
+            withUnsafeMutableBytes(of: &addr.sun_path) { $0.copyBytes(from: b); $0[b.count] = 0 }
+            addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+            _ = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+            listen(fd, 8)
+            Thread.detachNewThread { [self] in
+                while true {
+                    let c = accept(fd, nil, nil)
+                    guard c >= 0 else { return }
+                    serve(c)
+                }
+            }
+        }
+        func stop() { close(fd); unlink(path) }
+
+        private func serve(_ c: Int32) {
+            defer { close(c) }
+            var raw = Data(), buf = [UInt8](repeating: 0, count: 4096)
+            while raw.range(of: Data("\r\n\r\n".utf8)) == nil {
+                let n = read(c, &buf, buf.count); if n <= 0 { return }
+                raw.append(contentsOf: buf[0..<n])
+            }
+            let line = String(decoding: raw, as: UTF8.self).components(separatedBy: "\r\n")[0].split(separator: " ")
+            let method = String(line[0]), path = String(line[1])
+            lock.lock(); _requests.append("\(method) \(path)"); let (status, body) = handle(method, path); lock.unlock()
+            var out = Data("HTTP/1.1 \(status) X\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n".utf8)
+            if !body.isEmpty { out.append(Data((String(body.count, radix: 16) + "\r\n").utf8)); out.append(body); out.append(Data("\r\n".utf8)) }
+            out.append(Data("0\r\n\r\n".utf8))
+            _ = out.withUnsafeBytes { write(c, $0.baseAddress, $0.count) }
+        }
+
+        private func json(_ o: Any) -> Data { try! JSONSerialization.data(withJSONObject: o) }
+        private func handle(_ method: String, _ path: String) -> (Int, Data) {
+            let p = path.removingPercentEncoding ?? path
+            switch (method, p) {
+            case ("GET", "/_ping"): return (200, Data("OK".utf8))
+            case ("GET", "/system/df"):
+                var imgs = images
+                for i in imgs.indices { imgs[i]["Containers"] = containers.filter { $0["ImageID"] as? String == imgs[i]["Id"] as? String }.count }
+                var vols = volumes
+                for i in vols.indices {
+                    let name = vols[i]["Name"] as! String
+                    let refs = containers.filter { (($0["Mounts"] as? [[String: Any]]) ?? []).contains { $0["Name"] as? String == name } }.count
+                    vols[i]["UsageData"] = ["RefCount": refs, "Size": (vols[i]["UsageData"] as? [String: Any])?["Size"] ?? 0]
+                }
+                return (200, json(["Images": imgs, "Containers": containers, "Volumes": vols, "BuildCache": cache]))
+            case ("POST", "/build/prune?all=true"): cache = []; return (200, json(["SpaceReclaimed": 777]))
+            default: break
+            }
+            if method == "DELETE", p.hasPrefix("/containers/") {
+                let id = String(p.dropFirst("/containers/".count))
+                if let c = containers.first(where: { $0["Id"] as? String == id }), c["State"] as? String == "running" { return (409, json(["message": "container is running"])) }
+                containers.removeAll { $0["Id"] as? String == id }; return (204, Data())
+            }
+            if method == "DELETE", p.hasPrefix("/images/") {
+                let ref = String(p.dropFirst("/images/".count))
+                guard let i = images.firstIndex(where: { $0["Id"] as? String == ref || (($0["RepoTags"] as? [String]) ?? []).contains(ref) }) else { return (404, json(["message": "no such image"])) }
+                if containers.contains(where: { $0["ImageID"] as? String == images[i]["Id"] as? String }) { return (409, json(["message": "image is being used"])) }
+                var tags = (images[i]["RepoTags"] as? [String]) ?? []
+                tags.removeAll { $0 == ref }
+                if tags.isEmpty { images.remove(at: i) } else { images[i]["RepoTags"] = tags }
+                return (200, json([["Untagged": ref]]))
+            }
+            if method == "DELETE", p.hasPrefix("/volumes/") {
+                let name = String(p.dropFirst("/volumes/".count))
+                if containers.contains(where: { (($0["Mounts"] as? [[String: Any]]) ?? []).contains { $0["Name"] as? String == name } }) { return (409, json(["message": "volume is in use"])) }
+                volumes.removeAll { $0["Name"] as? String == name }; return (204, Data())
+            }
+            return (404, json(["message": "not found: \(method) \(p)"]))
+        }
+    }
+
+    let sb = ["dev.maclens.selftest": "1"]
+    let anonName = String(repeating: "ab12", count: 16)
+    func cont(_ id: String, _ state: String, image: String, project: String?, mounts: [String]) -> [String: Any] {
+        var labels = sb; if let project { labels[DockerClassifier.projectLabel] = project }
+        return ["Id": id, "Names": ["/" + id], "Image": image, "ImageID": image, "Created": 1_700_000_000, "SizeRw": 4096, "State": state,
+                "Status": state == "running" ? "Up 2 hours" : "Exited (0) 3 days ago", "Labels": labels,
+                "Mounts": mounts.map { ["Type": "volume", "Name": $0] }]
+    }
+    func img(_ id: String, tags: [String]?, size: Int, shared: Int, labels: [String: String] = sb) -> [String: Any] {
+        ["Id": id, "RepoTags": tags as Any, "Created": 1_700_000_000, "Size": size, "SharedSize": shared, "Containers": 0, "Labels": labels]
+    }
+    func vol(_ name: String, size: Int, labels: [String: String]) -> [String: Any] {
+        ["Name": name, "CreatedAt": "2026-10-05T11:38:30.123456789Z", "Driver": "local", "Labels": labels, "UsageData": ["RefCount": 0, "Size": size]]
+    }
+    let sockPath = (T + "/d.sock").utf8.count < 100 ? T + "/d.sock" : "/tmp/maclens-selftest-\(getpid()).sock"
+    let fake = FakeDocker(path: sockPath)
+    fake.images = [img("sha256:run", tags: ["db:16"], size: 600, shared: 100),
+                   img("sha256:demo", tags: ["demo/app:latest", "demo/app:1.0"], size: 500, shared: 200),
+                   img("sha256:dangle", tags: ["<none>:<none>"], size: 300, shared: 0),
+                   img("sha256:old", tags: ["old:1"], size: 400, shared: -1),
+                   img("sha256:index", tags: ["multi:1"], size: 100, shared: 400),
+                   img("sha256:nolabel", tags: ["mine:1"], size: 50, shared: 0, labels: [:])]
+    fake.containers = [cont("web", "running", image: "sha256:run", project: "other", mounts: ["pgdata"]),
+                       cont("demo-app-1", "exited", image: "sha256:demo", project: "demo", mounts: ["demo_data", anonName])]
+    fake.volumes = [vol("pgdata", size: 1000, labels: sb.merging([DockerClassifier.projectLabel: "other"]) { a, _ in a }),
+                    vol("demo_data", size: 2000, labels: sb.merging([DockerClassifier.projectLabel: "demo"]) { a, _ in a }),
+                    vol(anonName, size: 30, labels: sb),
+                    vol("scratch", size: 40, labels: sb.merging([DockerClassifier.anonymousLabel: ""]) { a, _ in a }),
+                    vol("keepme", size: 50, labels: sb)]
+    fake.cache = [["InUse": false, "Shared": false, "Size": 70, "LastUsedAt": "2026-10-04T10:22:24.708047334Z"],
+                  ["InUse": false, "Shared": true, "Size": 80, "LastUsedAt": "2026-10-08T12:46:28.4Z"]]
+    let ep = DockerEndpoint(socketPath: sockPath, runtime: "fake")
+
+    let ping = try DockerAPI.request(ep, "GET", "/_ping", timeout: 5)
+    check(ping.status == 200 && String(decoding: ping.body, as: UTF8.self) == "OK", "unix-socket client talks HTTP and decodes chunked bodies")
+    let items = try DockerCleaner.load(ep)
+    func item(_ id: String) -> DockerItem? { items.first { $0.id == id } }
+    check(item("container:web")?.group == .inUse && item("container:web")?.inUseReason?.contains("Running") == true, "running container is in use")
+    check(item("container:demo-app-1")?.group == .stoppedContainers && item("container:demo-app-1")?.project == "demo", "stopped container, with its compose project")
+    check(item("image:sha256:run")?.group == .inUse && item("image:sha256:run")?.inUseReason?.contains("running container web") == true, "image of a running container is in use")
+    check(item("image:sha256:demo")?.inUseReason?.contains("stopped container demo-app-1") == true, "image of a stopped container says to delete the container first")
+    check(item("image:sha256:dangle")?.group == .danglingImages && item("image:sha256:dangle")?.tags.isEmpty == true, "<none>:<none> image is dangling")
+    check(item("image:sha256:old")?.group == .unusedImages && item("image:sha256:old")?.frees == 400, "unused tagged image; unknown shared size frees its full size")
+    check(item("image:sha256:run")?.frees == 500, "frees excludes layers shared with other images")
+    check(item("image:sha256:index")?.frees == -1, "shared size larger than the size reads as unknown, not negative")
+    check(item("volume:" + anonName)?.isNamedVolume == false && item("volume:" + anonName)?.group == .inUse, "64-hex volume is anonymous; mounted by a stopped container it's in use")
+    check(item("volume:scratch")?.group == .anonymousVolumes, "volume with the anonymous label is anonymous")
+    check(item("volume:keepme")?.group == .namedVolumes && item("volume:keepme")?.group.safety == .data, "unused named volume is 'may hold data'")
+    check(item("volume:pgdata")?.group == .inUse && item("volume:pgdata")?.isNamedVolume == true, "named volume of a running container is in use")
+    let bc = item("buildCache:all")
+    check(bc?.group == .buildCache && bc?.size == 150 && bc?.frees == 70 && bc?.lastUsed != nil, "build cache: one row, shared entries not counted as freed, nanosecond dates parse")
+    check(DockerGroup.allCases.map(\.safety) == [.safe, .safe, .safe, .caution, .caution, .data, .inUse], "groups run from safe to in use")
+
+    check(DockerCleaner.verdict(item("container:web")!, allowData: true).reason?.contains("Running") == true, "verdict: running container refused")
+    check(!DockerCleaner.verdict(item("volume:keepme")!, allowData: false).isAllowed, "verdict: named volume refused without its own confirmation")
+    check(DockerCleaner.verdict(item("volume:keepme")!, allowData: true).isAllowed, "verdict: named volume allowed once confirmed")
+    check(DockerCleaner.verdict(item("image:sha256:nolabel")!, allowData: true).reason?.contains("SANDBOX") == true, "verdict: outside MACLENS_DOCKER_SANDBOX refused")
+
+    let plan = DockerProjects.plan("demo", items: items)
+    check(Set(plan.remove.map(\.id)) == ["container:demo-app-1", "image:sha256:demo", "volume:demo_data", "volume:" + anonName] && plan.keep.isEmpty,
+          "project plan: stopped container, then the image and volumes only it used")
+    let otherPlan = DockerProjects.plan("other", items: items)
+    check(otherPlan.remove.isEmpty && Set(otherPlan.keep.map(\.id)) == ["container:web", "volume:pgdata"], "project plan keeps running containers and what they use")
+    check(DockerProjects.names(items) == ["demo", "other"], "compose projects listed")
+
+    var stale = item("image:sha256:old")!; stale.created = Date(timeIntervalSince1970: 1)
+    let changed = DockerCleaner.delete([stale], allowData: false, endpoint: ep)
+    check(changed[0].error?.contains("Changed") == true && fake.images.contains { $0["Id"] as? String == "sha256:old" }, "identity re-check: a changed item is not deleted")
+
+    let before = fake.requests.count
+    let out = DockerCleaner.delete(plan.remove.reversed(), allowData: false, endpoint: ep)
+    let reqs = fake.requests.dropFirst(before).filter { !$0.hasPrefix("GET /_ping") }
+    let firstImage = reqs.firstIndex { $0.hasPrefix("DELETE /images") } ?? -1, lastContainer = reqs.lastIndex { $0.hasPrefix("DELETE /containers") } ?? 99
+    check(lastContainer < firstImage, "containers are deleted before images, whatever the order given")
+    check(reqs.filter { $0 == "GET /system/df" }.count == 3, "Docker is re-read before each stage")
+    check(!reqs.contains { $0.contains("force") }, "nothing is forced")
+    check(reqs.contains("DELETE /images/demo%2Fapp%3Alatest") && reqs.contains("DELETE /images/demo%2Fapp%3A1.0") && !fake.images.contains { $0["Id"] as? String == "sha256:demo" },
+          "a multi-tag image is deleted by untagging each tag")
+    check(out.first { $0.item.id == "volume:demo_data" }?.error?.contains("confirmation") == true && fake.volumes.contains { $0["Name"] as? String == "demo_data" },
+          "project clean-up skips the named volume without its confirmation")
+    check(out.filter { $0.error == nil }.count == 3 && !fake.volumes.contains { $0["Name"] as? String == anonName }, "the rest of the project is gone, including its anonymous volume")
+    let named = DockerCleaner.delete([item("volume:demo_data")!], allowData: true, endpoint: ep)
+    check(named[0].error == nil && !fake.volumes.contains { $0["Name"] as? String == "demo_data" }, "named volume deleted once confirmed")
+    let run = DockerCleaner.delete([item("container:web")!, item("image:sha256:nolabel")!], allowData: true, endpoint: ep)
+    check(run.allSatisfy { $0.error != nil } && !fake.requests.contains { $0.hasPrefix("DELETE /containers/web") || $0.contains("mine") },
+          "running and unlabelled items never reach Docker")
+    let pruned = DockerCleaner.delete([bc!], allowData: false, endpoint: ep)
+    check(pruned[0].error?.contains("SANDBOX") == true && !fake.requests.contains { $0.hasPrefix("POST /build/prune") },
+          "build cache prune can't be fenced to test items, so the sandbox refuses it")
+    var steps: [DockerDeleteProgress] = []
+    let two = DockerCleaner.delete([item("image:sha256:dangle")!, item("image:sha256:old")!], allowData: false, endpoint: ep) { steps.append($0) }
+    check(two.allSatisfy { $0.error == nil } && steps.first?.step == "Checking with Docker" && steps.last == DockerDeleteProgress(done: 2, total: 2, step: "Done", current: ""),
+          "progress: checks with Docker, then counts up to done")
+    check(steps.filter { $0.step == "Deleting" }.map(\.done) == [0, 1] && steps.contains { $0.current == "old:1" }, "progress names each item as it's deleted")
+    var started = 0
+    let stopped = DockerCleaner.delete([item("image:sha256:index")!, item("volume:scratch")!], allowData: false, endpoint: ep,
+                                       progress: { if $0.step == "Deleting" { started += 1 } }, isCancelled: { started >= 1 })
+    check(stopped[0].error == nil && stopped[1].error == "Cancelled." && fake.volumes.contains { $0["Name"] as? String == "scratch" },
+          "Stop finishes the current item and skips the rest")
+    fake.stop()
+    check((try? DockerAPI.request(ep, "GET", "/_ping", timeout: 2)) == nil, "a stopped runtime reads as not running")
+
+    let parsed = try DockerAPI.parse(Data("HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\n\r\n{\"message\":\"in use\"}".utf8))
+    check(parsed.status == 409 && parsed.message == "in use", "non-chunked replies and Docker error messages parse")
+    check(DockerAPI.segment("ghcr.io/a/b:1") == "ghcr.io%2Fa%2Fb%3A1", "image references are percent-encoded as one path segment")
+    check(DockerClassifier.isAnonymousVolume(name: anonName, labels: [:]) && !DockerClassifier.isAnonymousVolume(name: "pg_data", labels: [:]), "anonymous volume detection by name")
+    check(DockerVM.label(forPath: PathUtil.join(PathUtil.home, "Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw")) != nil, "Storage tab names Docker.raw")
+    let cands = DockerAPI.candidates(home: "/Users/x", env: ["DOCKER_HOST": "unix:///tmp/custom.sock"])
+    check(cands.first?.socketPath == "/tmp/custom.sock" && cands.contains { $0.runtime == "Docker Desktop" } && cands.contains { $0.runtime == "OrbStack" }, "socket discovery honours DOCKER_HOST, then known runtimes")
+
+    // Real Docker, when it's running locally (never on CI): only a throwaway, labelled volume is created and deleted.
+    if !onCI, let real = DockerAPI.discover() {
+        let name = "maclens-selftest-\(UUID().uuidString.prefix(8))"
+        let body = try JSONSerialization.data(withJSONObject: ["Name": name, "Labels": sb])
+        let created = try DockerAPI.request(real, "POST", "/volumes/create", body: body, timeout: 30)
+        let live = try DockerCleaner.load(real)
+        let mine = live.first { $0.id == "volume:" + name }
+        check((200..<300).contains(created.status) && mine?.group == .namedVolumes, "live (\(real.runtime)): a new named volume is listed as named")
+        if let mine {
+            check(DockerCleaner.delete([mine], allowData: false, endpoint: real)[0].error != nil, "live: refused without confirmation")
+            check(DockerCleaner.delete([mine], allowData: true, endpoint: real)[0].error == nil, "live: deleted once confirmed")
+        }
+        if let foreign = live.first(where: { $0.group != .inUse && $0.labels["dev.maclens.selftest"] == nil }) {
+            check(DockerCleaner.delete([foreign], allowData: true, endpoint: real)[0].error?.contains("SANDBOX") == true, "live: your own Docker items are never touched by the self-test")
+        }
+    } else {
+        print("  – live Docker checks skipped (\(onCI ? "CI" : "Docker not running"))")
+    }
+} catch {
+    check(false, "Docker checks threw: \(error)")
 }
 
 // MARK: - Deletion guard

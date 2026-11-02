@@ -9,6 +9,7 @@ extension Artifact {
 
 struct ArtifactsView: View {
     @EnvironmentObject var store: ArtifactStore
+    @EnvironmentObject var docker: DockerStore
     @State private var selection = Set<Artifact.ID>()
     @State private var sortOrder = [KeyPathComparator(\PositionRow<Artifact>.item.allocSize, order: .reverse)]
     @State private var confirm: DeleteMode?
@@ -21,6 +22,7 @@ struct ArtifactsView: View {
         let rows = self.rows
         VStack(spacing: 0) {
             header
+            DockerSummaryRow()
             Table(rows, selection: rows.selection($selection), sortOrder: $sortOrder) {
                 TableColumn("Type", value: \.item.kindName) { row in
                     let a = row.item
@@ -66,6 +68,7 @@ struct ArtifactsView: View {
                 }
             } onCancel: { confirm = nil }
         }
+        .onAppear { if docker.vmDisk == nil { docker.measureDisk() } }
         .alert("Some items couldn't be deleted", isPresented: Binding(get: { outcome != nil }, set: { if !$0 { outcome = nil } })) {
             Button("OK") { outcome = nil }
         } message: { Text(outcome ?? "") }
@@ -294,6 +297,7 @@ struct SettingsView: View {
             Section("Definitions") {
                 Text(SystemClassifier.definition).font(.caption)
                 Text(DeletionGuard.summary).font(.caption)
+                Text(DockerCleaner.summary).font(.caption)
             }
         }
         .formStyle(.grouped)

@@ -13,7 +13,7 @@ MacLens is a native macOS monitor and disk cleaner for developers:
 
 | Path | Contents |
 |---|---|
-| `Sources/MacLensCore/` | All system access and logic, UI-free and testable: processes, sensors, power/battery, ports, disk scanner, FSEvents, artifacts, deletion guard, caffeinate, battery alerts |
+| `Sources/MacLensCore/` | All system access and logic, UI-free and testable: processes, sensors, power/battery, ports, disk scanner, FSEvents, artifacts, deletion guard, Docker (socket client, classifier, `DockerCleaner`), caffeinate, battery alerts |
 | `Sources/MacLens/` | SwiftUI app: `Engine` (background sampler), `Model` (stores, settings, notifier), views per tab, `DebugSnapshot` |
 | `Sources/SelfTest/` | `maclens-selftest`, the test suite (see below) |
 | `scripts/build-app.sh` | Release build → `dist/MacLens.app` (icon, Info.plist, codesign) |
@@ -56,10 +56,10 @@ Other flags:
 
 ## Rules that must not regress
 
-- **Deletion goes through `DeletionGuard` / `Deleter` in the core**, never `FileManager` directly from the UI.
+- **Deletion goes through `DeletionGuard` / `Deleter` in the core**, never `FileManager` directly from the UI. Docker items go through `DockerCleaner` (never forced; named volumes need their own confirmation).
   - The guard blocks system paths, SIP-protected items, other users' files, mount points and home/top-level folders.
   - Trash is the default. Permanent delete is a separate, explicit action.
-- **Never delete anything outside a test directory during development.** The self-test uses `./.selftest/run-*` and sets `MACLENS_DELETE_SANDBOX` (the Deleter refuses paths outside it) and `MACLENS_CACHE_DIR`. Tests must not touch the real app cache (`~/Library/Caches/dev.maclens`).
+- **Never delete anything outside a test directory during development.** The self-test uses `./.selftest/run-*` and sets `MACLENS_DELETE_SANDBOX` (the Deleter refuses paths outside it), `MACLENS_DOCKER_SANDBOX` (DockerCleaner deletes only items with that label) and `MACLENS_CACHE_DIR`. Tests must not touch the real app cache (`~/Library/Caches/dev.maclens`).
 - **Kill safety:**
   - `ProcessControl.policy` refuses critical processes and other users' processes.
   - System components require an explicit warning.

@@ -4,7 +4,7 @@ import UserNotifications
 import MacLensCore
 
 enum Tab: String, CaseIterable, Identifiable {
-    case dashboard, processes, heat, ports, storage, artifacts, services, settings
+    case dashboard, processes, heat, ports, storage, artifacts, docker, services, settings
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -14,6 +14,7 @@ enum Tab: String, CaseIterable, Identifiable {
         case .ports: return "Ports"
         case .storage: return "Storage"
         case .artifacts: return "Developer Artifacts"
+        case .docker: return "Docker"
         case .services: return "Additional Services"
         case .settings: return "Settings"
         }
@@ -26,6 +27,7 @@ enum Tab: String, CaseIterable, Identifiable {
         case .ports: return "network"
         case .storage: return "internaldrive"
         case .artifacts: return "shippingbox"
+        case .docker: return "square.stack.3d.up"
         case .services: return "puzzlepiece.extension"
         case .settings: return "gearshape"
         }
@@ -157,6 +159,7 @@ struct PortRow: Identifiable, Hashable {
     let ports = PortsStore()
     let disk = DiskStore()
     let artifacts = ArtifactStore()
+    let docker = DockerStore()
     let notifier = Notifier()
     @Published var tab: Tab = .dashboard { didSet { updateMode() } }
     let history = HistoryStore()

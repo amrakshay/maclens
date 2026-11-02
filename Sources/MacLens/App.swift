@@ -71,6 +71,7 @@ struct MacLensApp: App {
                 .environmentObject(model.ports)
                 .environmentObject(model.disk)
                 .environmentObject(model.artifacts)
+                .environmentObject(model.docker)
                 .environmentObject(model.history)
                 .environmentObject(model.sleep)
                 .environmentObject(model.updates)
@@ -149,6 +150,7 @@ struct MainView: View {
                 case .ports: PortsView()
                 case .storage: StorageView()
                 case .artifacts: ArtifactsView()
+                case .docker: DockerView()
                 case .services: ServicesView()
                 case .settings: SettingsView()
                 }
